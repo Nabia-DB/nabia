@@ -74,7 +74,7 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func startServer(db *engine.NabiaDB) {
 	http_handler := NewNabiaHttp(db)
-	http.ListenAndServe(":5380", http_handler)
+	http.ListenAndServe(":5380", http_handler) // TODO add configuration for this
 }
 
 func main() {
