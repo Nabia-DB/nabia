@@ -37,10 +37,10 @@ func TestHTTP(t *testing.T) { // Tests the implementation of the HTTP API
 	}{
 		{"HEAD", "/a1", []byte(nil), "", http.StatusNotFound}, // the DB must be empty on first boot
 		{"GET", "/a1", []byte(nil), "", http.StatusNotFound},
-		{"POST", "/a1", []byte("test"), "application/octet-stream", http.StatusOK}, // first upload
+		{"POST", "/a1", []byte("test"), "application/octet-stream", http.StatusCreated}, // first upload
 		{"HEAD", "/a1", []byte(nil), "", http.StatusOK},
 		{"GET", "/a1", []byte("test"), "application/octet-stream", http.StatusOK},
-		{"POST", "/a1", []byte("edited test"), "application/octet-stream", http.StatusOK}, // second upload, overwriting first upload
+		{"PUT", "/a1", []byte("edited test"), "application/octet-stream", http.StatusOK}, // second upload, overwriting first upload
 		{"GET", "/a1", []byte("edited test"), "application/octet-stream", http.StatusOK},
 		{"DELETE", "/a1", []byte(nil), "", http.StatusOK}, // after deletion, no method should find /a1
 		{"DELETE", "/a1", []byte(nil), "", http.StatusNotFound},
@@ -58,11 +58,17 @@ func TestHTTP(t *testing.T) { // Tests the implementation of the HTTP API
 		case "HEAD":
 			response, err = http.Head(getURL(row.key))
 		case "DELETE":
-			// TODO implement deletion
 			req, e := http.NewRequest("DELETE", getURL(row.key), nil)
 			if e != nil {
 				t.Errorf("Unexpected error when trying to %q %q.\n%s", row.verb, row.key, err.Error())
 			}
+			response, err = http.DefaultClient.Do(req)
+		case "PUT":
+			req, e := http.NewRequest("PUT", getURL(row.key), bytes.NewReader(row.value))
+			if e != nil {
+				t.Errorf("Unexpected error when trying to %q %q.\n%s", row.verb, row.key, err.Error())
+			}
+			req.Header.Set("Content-Type", row.content_type)
 			response, err = http.DefaultClient.Do(req)
 		default:
 			err = errors.New("Unknown method " + row.verb)
