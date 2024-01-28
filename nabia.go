@@ -43,9 +43,26 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNotFound)
 		}
 		response = nil
-	case "POST": // TODO tests
-		// Writes without checking, overwriting where necessary
-		// TODO POST should only create
+	case "POST":
+		// Creates if not exists, otherwise denies
+		body, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+		} else {
+			if h.db.Exists(key) {
+				w.WriteHeader(http.StatusConflict)
+			} else {
+				ct := r.Header.Get("Content-Type")
+				if ct == "" {
+					ct = "application/octet-stream"
+				}
+				record := engine.NewNabiaRecord(body, engine.ContentType(ct))
+				h.db.Write(key, *record)
+				w.WriteHeader(http.StatusCreated)
+			}
+		}
+	case "PUT":
+		// Overwrites if exists, otherwise creates
 		body, err := ioutil.ReadAll(r.Body)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -55,7 +72,13 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				ct = "application/octet-stream" // Set generic Content-Type if not provided by the client
 			}
 			record := engine.NewNabiaRecord(body, engine.ContentType(ct))
+			existed := h.db.Exists(key)
 			h.db.Write(key, *record)
+			if existed {
+				w.WriteHeader(http.StatusOK)
+			} else {
+				w.WriteHeader(http.StatusCreated)
+			}
 		}
 	case "DELETE": // TODO tests
 		// Only Destroy
@@ -67,7 +90,23 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// TODO DRY
 		}
 	case "PATCH": // TODO complete
-		// ! use https://docs.microsoft.com/en-us/iis-administration/api/crud#update-patch--put as reference
+		// Overwrites if exists, otherwise denies
+		body, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+		} else {
+			if h.db.Exists(key) {
+				ct := r.Header.Get("Content-Type")
+				if ct == "" {
+					ct = "application/octet-stream" // Set generic Content-Type if not provided by the client
+				}
+				record := engine.NewNabiaRecord(body, engine.ContentType(ct))
+				h.db.Write(key, *record)
+				w.WriteHeader(http.StatusOK)
+			} else {
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}
 	}
 	io.WriteString(w, string(response))
 }
