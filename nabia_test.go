@@ -59,7 +59,11 @@ func TestHTTP(t *testing.T) { // Tests the implementation of the HTTP API
 			response, err = http.Head(getURL(row.key))
 		case "DELETE":
 			// TODO implement deletion
-			err = errors.New("DELETE not implemented yet")
+			req, e := http.NewRequest("DELETE", getURL(row.key), nil)
+			if e != nil {
+				t.Errorf("Unexpected error when trying to %q %q.\n%s", row.verb, row.key, err.Error())
+			}
+			response, err = http.DefaultClient.Do(req)
 		default:
 			err = errors.New("Unknown method " + row.verb)
 		}
