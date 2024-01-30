@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 
 	engine "github.com/Nabia-DB/nabia-core/engine"
+	"github.com/spf13/viper"
 )
 
 type NabiaHTTP struct {
@@ -113,11 +115,24 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func startServer(db *engine.NabiaDB) {
 	http_handler := NewNabiaHttp(db)
-	http.ListenAndServe(":5380", http_handler) // TODO add configuration for this
+	port := viper.GetString("port")
+	log.Println("Listening on port " + port)
+	http.ListenAndServe(":"+port, http_handler)
 }
 
 func main() {
-	fmt.Println("Starting Nabia...")
+	log.Println("Starting Nabia...")
+
+	viper.SetConfigName("config")       // name of config file (without extension)
+	viper.SetConfigType("yaml")         // REQUIRED if the config file does not have the extension in the name
+	viper.AddConfigPath("/etc/nabia/")  // path to look for the config file in
+	viper.AddConfigPath("$HOME/.nabia") // call multiple times to add many search paths
+	viper.AddConfigPath(".")            // optionally look for config in the working directory
+	err := viper.ReadInConfig()         // Find and read the config file
+	if err != nil {                     // Handle errors reading the config file
+		panic(fmt.Errorf("fatal error config file: %s", err))
+	}
+
 	db := *engine.NewNabiaDB()
 	startServer(&db)
 }
