@@ -1,4 +1,4 @@
-module github.com/Nabia-DB/nabia-core
+module github.com/Nabia-DB/nabia/tree/main/core
 
 go 1.17
 
