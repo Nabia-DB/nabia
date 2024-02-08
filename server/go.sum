@@ -1,5 +1,7 @@
 github.com/Nabia-DB/nabia-core v0.0.0-20220220132202-adaab2c848ef h1:gSUTjDIiU4RUjVN6JEIqoEySDOVInth2KmzCS3oD8v8=
 github.com/Nabia-DB/nabia-core v0.0.0-20220220132202-adaab2c848ef/go.mod h1:6xj5fsdGNPXxtpx4gMbPXupj1lNJxmtMvIhthZunNj8=
+github.com/Nabia-DB/nabia-core v0.0.0-20220220171208-1cc8d6e24bae h1:TvxaccCvfPqtetK+sWq/NRs0fYb/gcgvGH4OBlVG6IE=
+github.com/Nabia-DB/nabia-core v0.0.0-20220220171208-1cc8d6e24bae/go.mod h1:6xj5fsdGNPXxtpx4gMbPXupj1lNJxmtMvIhthZunNj8=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/fsnotify/fsnotify v1.7.0 h1:8JEhPFa5W2WU7YfeZzPNqzMP6Lwt7L2715Ggo0nosvA=

@@ -1,9 +1,9 @@
-module github.com/Nabia-DB/nabia/tree/main/server
+module github.com/Nabia-DB/nabia/server
+
 go 1.17
 
-require github.com/Nabia-DB/nabia/tree/main/core v0.0.0-20220220132202-adaab2c848ef
-
 require (
+	github.com/Nabia-DB/nabia-core v0.0.0-20220220171208-1cc8d6e24bae // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect

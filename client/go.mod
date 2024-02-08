@@ -1,3 +1,3 @@
-module github.com/Nabia-DB/nabia/tree/main/client
+module github.com/Nabia-DB/nabia/client
 
 go 1.17
