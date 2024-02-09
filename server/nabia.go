@@ -109,6 +109,16 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusNotFound)
 			}
 		}
+	case "OPTIONS": // TODO complete
+		// TODO tests
+		if h.db.Exists(key) {
+			w.Header().Set("Allow", "GET, PUT, PATCH, DELETE")
+		} else {
+			w.Header().Set("Allow", "PUT, POST")
+		}
+		w.WriteHeader(http.StatusOK)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 	io.WriteString(w, string(response))
 }

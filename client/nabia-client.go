@@ -15,28 +15,40 @@ import (
 	"github.com/spf13/viper"
 )
 
-func getData(key string, host string, port uint16) (interface{}, error) {
-	// TODO don't assume charset
-	// Constructing a structured URL
-	u := url.URL{
-		Scheme: "http", // or "https" for secure connections
-		Host:   fmt.Sprintf("%s:%d", host, port),
+func makeRequest(method string, key string, host string, port uint16, value []byte) (*http.Response, error) {
+	u := &url.URL{
+		Scheme: "http",
+		Host:   net.JoinHostPort(host, strconv.Itoa(int(port))),
 		Path:   key,
 	}
 
-	// Initialize a new request with http.NewRequest
-	req, err := http.NewRequest("GET", u.String(), nil)
+	var req *http.Request
+	var err error
+
+	if value != nil {
+		req, err = http.NewRequest(method, u.String(), bytes.NewReader(value))
+	} else {
+		req, err = http.NewRequest(method, u.String(), nil)
+	}
+
 	if err != nil {
 		return nil, err
 	}
 
-	// Setting headers
 	req.Header.Set("Content-Type", "text/plain; charset=UTF-8")
 	req.Header.Set("User-Agent", "nabia-client/0.1")
 
-	// Send the request using http.Client
 	client := &http.Client{}
 	response, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	return response, nil
+}
+
+func getData(key string, host string, port uint16) (interface{}, error) {
+	response, err := makeRequest("GET", key, host, port, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -51,27 +63,7 @@ func getData(key string, host string, port uint16) (interface{}, error) {
 }
 
 func postData(key string, host string, port uint16, value []byte) error {
-	// TODO don't assume charset
-	// Constructing the URL as previously
-	u := &url.URL{
-		Scheme: "http",
-		Host:   net.JoinHostPort(host, strconv.Itoa(int(port))),
-		Path:   key,
-	}
-
-	// Creating a new request with the correct method and body
-	req, err := http.NewRequest("POST", u.String(), bytes.NewReader(value))
-	if err != nil {
-		return err
-	}
-
-	// Setting headers
-	req.Header.Set("Content-Type", "text/plain; charset=UTF-8")
-	req.Header.Set("User-Agent", "nabia-client/0.1")
-
-	// Making the request
-	client := &http.Client{}
-	response, err := client.Do(req)
+	response, err := makeRequest("POST", key, host, port, value)
 	if err != nil {
 		return err
 	}
@@ -82,29 +74,10 @@ func postData(key string, host string, port uint16, value []byte) error {
 	}
 
 	return nil
-}
-
-func deleteData(key string) {
-	// TODO
 }
 
 func putData(key string, host string, port uint16, value []byte) error {
-	// TODO DRY
-	// TODO don't assume charset
-	u := &url.URL{
-		Scheme: "http",
-		Host:   net.JoinHostPort(host, strconv.Itoa(int(port))),
-		Path:   key,
-	}
-	req, err := http.NewRequest(http.MethodPut, u.String(), bytes.NewReader(value))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "text/plain; charset=UTF-8")
-	req.Header.Set("User-Agent", "nabia-client/0.1")
-
-	client := &http.Client{}
-	response, err := client.Do(req)
+	response, err := makeRequest("PUT", key, host, port, value)
 	if err != nil {
 		return err
 	}
@@ -115,6 +88,20 @@ func putData(key string, host string, port uint16, value []byte) error {
 	}
 
 	return nil
+}
+
+func deleteData(key string, host string, port uint16) error {
+    response, err := makeRequest("DELETE", key, host, port, nil)
+    if err != nil {
+        return err
+    }
+    defer response.Body.Close()
+
+    if response.StatusCode/100 != 2 {
+        return fmt.Errorf("expected 2xx response code, got %s", response.Status)
+    }
+
+    return nil
 }
 
 func main() {
@@ -214,6 +201,24 @@ func main() {
 		},
 	}
 
+	var deleteCmd = &cobra.Command{
+    Use:   "DELETE [key]",
+    Short: "DELETE a key",
+    Args:  cobra.ExactArgs(1),
+    Run: func(cmd *cobra.Command, args []string) {
+        key := args[0]
+        host := viper.GetString("host")
+        port := viper.GetInt("port")
+
+        fmt.Printf("Deleting key %s from %s:%d\n", key, host, port)
+        err := deleteData(key, host, uint16(port))
+        if err != nil {
+            fmt.Fprintln(os.Stderr, err)
+        }
+    },
+}
+
+	rootCmd.AddCommand(deleteCmd)
 	rootCmd.AddCommand(getCmd)
 	rootCmd.AddCommand(postCmd)
 	rootCmd.AddCommand(putCmd)
