@@ -142,6 +142,7 @@ func main() {
 	if err != nil {                     // Handle errors reading the config file
 		panic(fmt.Errorf("fatal error config file: %s", err))
 	}
+	log.Println("Found configuration file:", viper.ConfigFileUsed())
 
 	db := *engine.NewNabiaDB()
 	startServer(&db)
