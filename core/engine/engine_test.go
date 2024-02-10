@@ -25,8 +25,8 @@ func TestNabiaDB_SaveLoadCycle(t *testing.T) {
 	keys := []string{"key1", "key2"}
 	expectedRecords := make(map[string]NabiaRecord)
 	for _, key := range keys {
-		val := RandStringBytes(10)
-		record := NewNabiaString(val)
+		random_string := RandStringBytes(10)
+		record := NewNabiaString(random_string)
 		if err := db.Write(key, *record); err != nil {
 			t.Fatalf("Failed to write record for key %s: %v", key, err)
 		}
