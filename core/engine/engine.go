@@ -166,27 +166,41 @@ func (ns *NabiaDB) Stop() {
 }
 
 func (ns *NabiaDB) saveToFile(filename string) error {
+	// Open or create the file for writing. os.Create truncates the file if it already exists.
 	file, err := os.Create(filename)
 	if err != nil {
-		return err
+		return err // Return the error if file creation fails
 	}
-	defer file.Close()
+	defer file.Close() // Ensure the file is closed after writing is complete
 
-	// Use a buffered writer for better performance
+	// Use a buffered writer for efficient file writing
 	writer := bufio.NewWriter(file)
-	defer writer.Flush()
+	defer writer.Flush() // Ensure buffered data is flushed to file
 
+	// Create a new gob encoder that writes to the buffered writer
 	encoder := gob.NewEncoder(writer)
 
-	// Convert sync.Map to a regular map for encoding
+	// Prepare a regular map to hold the data from sync.Map
+	// This is necessary because gob cannot directly encode/decode sync.Map
 	data := make(map[string]NabiaRecord)
+
+	// Copy data from sync.Map to the regular map
 	ns.Records.Range(func(key, value interface{}) bool {
-		data[key.(string)] = value.(NabiaRecord)
-		return true
+		strKey, okKey := key.(string)               // Ensure the key is of type string
+		nabiaRecord, okValue := value.(NabiaRecord) // Ensure the value is of type NabiaRecord
+		if okKey && okValue {
+			data[strKey] = nabiaRecord
+		}
+		return true // Continue iterating over all entries in the sync.Map
 	})
 
-	// Encode the map
-	return encoder.Encode(data)
+	// Encode the regular map into the file
+	err = encoder.Encode(data)
+	if err != nil {
+		return err // Return the error if encoding fails
+	}
+
+	return nil // Return nil if the function completes successfully
 }
 
 func loadFromFile(filename string) (*NabiaDB, error) {
