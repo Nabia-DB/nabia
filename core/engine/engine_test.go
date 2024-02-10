@@ -10,12 +10,15 @@ import (
 )
 
 func TestCRUD(t *testing.T) { // Create, Read, Update, Destroy
-	nabia_db := NewNabiaDB()
 
 	var nabia_read NabiaRecord
-	var err error
 	var expected []byte
 	var expectedContentType ContentType
+
+	nabia_db, err := NewNabiaDB("nabia.db")
+	if err != nil {
+		t.Errorf("Failed to create NabiaDB: %s", err)
+	}
 
 	if nabia_db.Exists("A") {
 		t.Error("Uninitialised database contains elements!")
@@ -75,10 +78,10 @@ func TestCRUD(t *testing.T) { // Create, Read, Update, Destroy
 	// Test for incorrect ContentType
 	s3 := NewNabiaRecord([]byte("Incorrect ContentType Value"), "QWERTYABCD")
 	incorrect_content_type := nabia_db.Write("C", *s3)
-	nabia_read, err = nabia_db.Read("C")
 	if !strings.Contains(incorrect_content_type.Error(), "Content-Type is not valid") {
 		t.Error("malformed Content-Type should not be allowed")
 	}
+	nabia_read, err = nabia_db.Read("C")
 	if err == nil {
 		t.Error("malformed Content-Type should not be written to the database")
 	}

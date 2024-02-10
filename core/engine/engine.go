@@ -1,7 +1,11 @@
 package engine
 
 import (
+	"bufio"
+	"encoding/gob"
 	"fmt"
+	"log"
+	"os"
 	"regexp"
 	"sync"
 )
@@ -22,11 +26,48 @@ func NewNabiaRecord(data []byte, ct ContentType) *NabiaRecord {
 }
 
 type NabiaDB struct {
-	Records sync.Map
+	Records  sync.Map
+	location string
 }
 
-func NewNabiaDB() *NabiaDB {
-	return &NabiaDB{}
+// checkOrCreateDB checks if the file exists, and if it doesn't, it creates it.
+// The first boolean indicates whether the file already existed, and the second
+// boolean indicates whether an error occurred.
+func checkOrCreateDB(location string) (bool, error) {
+	// Attempt to open the file in read-only mode to check if it exists.
+	if _, err := os.Stat(location); err == nil {
+		// The file exists.
+		return true, nil
+	} else if os.IsNotExist(err) {
+		// The file does not exist, attempt to create it.
+		file, err := os.Create(location)
+		if err != nil {
+			// Failed to create the file, return the error.
+			return false, err
+		}
+		// Successfully created the file, close it.
+		defer file.Close()
+		return false, nil
+	} else {
+		// Some other error occurred when checking the file, return it.
+		return false, err
+	}
+}
+
+func NewNabiaDB(location string) (*NabiaDB, error) {
+	exists, err := checkOrCreateDB(location)
+	if err != nil {
+		return nil, err
+	}
+	ndb := &NabiaDB{Records: sync.Map{}, location: location}
+	if exists {
+		ndb.loadFromFile(location)
+	} else {
+		if err := ndb.saveToFile(location); err != nil {
+			log.Fatalf("Failed to save to file: %s", err)
+		}
+	}
+	return ndb, nil
 }
 
 // Below are the DB primitives.
@@ -80,4 +121,57 @@ func (ns *NabiaDB) Write(key string, value NabiaRecord) error {
 // do anything if the record doesn't exist.
 func (ns *NabiaDB) Destroy(key string) {
 	ns.Records.Delete(key)
+}
+
+func (ns *NabiaDB) Stop() {
+	return
+}
+
+func (ns *NabiaDB) saveToFile(filename string) error {
+	file, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Use a buffered writer for better performance
+	writer := bufio.NewWriter(file)
+	defer writer.Flush()
+
+	encoder := gob.NewEncoder(writer)
+
+	// Convert sync.Map to a regular map for encoding
+	data := make(map[string]*NabiaRecord)
+	ns.Records.Range(func(key, value interface{}) bool {
+		data[key.(string)] = value.(*NabiaRecord)
+		return true
+	})
+
+	// Encode the map
+	return encoder.Encode(data)
+}
+
+func (ns *NabiaDB) loadFromFile(filename string) error {
+	file, err := os.Open(filename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Use a buffered reader for better performance
+	reader := bufio.NewReader(file)
+	decoder := gob.NewDecoder(reader)
+
+	// Decode the map
+	data := make(map[string]*NabiaRecord)
+	if err := decoder.Decode(&data); err != nil {
+		return err
+	}
+
+	// Convert the regular map back to a sync.Map
+	for key, value := range data {
+		ns.Records.Store(key, value)
+	}
+
+	return nil
 }
