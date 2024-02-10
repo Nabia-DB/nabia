@@ -214,6 +214,5 @@ func loadFromFile(filename string) (*NabiaDB, error) {
 		ndb.internals.stats.size++
 	}
 
-
 	return ndb, err
 }
