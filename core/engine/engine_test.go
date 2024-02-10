@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"math/rand"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -66,9 +67,20 @@ func TestCRUD(t *testing.T) { // Create, Read, Update, Destroy
 	// Test for unknown ContentType
 	s2 := NewNabiaRecord([]byte("Unknown ContentType Value"), "unknown/type; charset=unknown")
 	nabia_db.Write("B", *s2)
-	nabia_read, err = nabia_db.Read("B")
+	nabia_read, _ = nabia_db.Read("B")
 	if nabia_read.ContentType != "unknown/type; charset=unknown" {
-		t.Errorf("Content type not saving correctly")
+		t.Error("Content type not saving correctly")
+	}
+
+	// Test for incorrect ContentType
+	s3 := NewNabiaRecord([]byte("Incorrect ContentType Value"), "QWERTYABCD")
+	incorrect_content_type := nabia_db.Write("C", *s3)
+	nabia_read, err = nabia_db.Read("C")
+	if !strings.Contains(incorrect_content_type.Error(), "Content-Type is not valid") {
+		t.Error("malformed Content-Type should not be allowed")
+	}
+	if err == nil {
+		t.Error("malformed Content-Type should not be written to the database")
 	}
 
 	// Test for non-existent item
@@ -77,9 +89,29 @@ func TestCRUD(t *testing.T) { // Create, Read, Update, Destroy
 		t.Error("\"Destroy\" isn't working!\nNon-existent item appears to exist in DB.")
 	}
 
+	// Test for incorrect key
+	incorrect_key := nabia_db.Write("", *s) // This should not be allowed
+	if !strings.Contains(incorrect_key.Error(), "key cannot be empty") {
+		t.Error("Empty key should not be allowed")
+	}
+
+	// Test for incorrect values
+	incorrect_value1 := nabia_db.Write("/A", NabiaRecord{}) // This should not be allowed
+	if !strings.Contains(incorrect_value1.Error(), "value cannot be nil") {
+		t.Error("Empty NabiaRecord should not be allowed")
+	}
+	incorrect_value2 := nabia_db.Write("/A", NabiaRecord{nil, "application/json; charset=UTF-8"}) // This should not be allowed
+	if !strings.Contains(incorrect_value2.Error(), "value cannot be nil") {
+		t.Error("nil NabiaRecord RawData should not be allowed")
+	}
+	incorrect_value3 := nabia_db.Write("/A", NabiaRecord{[]byte("Value_A"), ""}) // This should not be allowed
+	if !strings.Contains(incorrect_value3.Error(), "Content-Type cannot be empty") {
+		t.Error("Empty NabiaRecord ContentType should not be allowed")
+	}
+
 	// Concurrency test with Destroy operation
 	var wg sync.WaitGroup
-	for i := 0; i < 100000; i++ {
+	for i := 0; i < 1000000; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

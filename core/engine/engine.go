@@ -2,11 +2,12 @@ package engine
 
 import (
 	"fmt"
+	"regexp"
 	"sync"
 )
 
+type path = string // The key
 type ContentType = string
-type CharSet = string
 type NabiaRecord struct {
 	RawData     []byte
 	ContentType ContentType // "Content-Type" https://datatracker.ietf.org/doc/html/rfc2616/#section-14.17
@@ -20,9 +21,8 @@ func NewNabiaRecord(data []byte, ct ContentType) *NabiaRecord {
 	return &NabiaRecord{RawData: data, ContentType: ct}
 }
 
-type path = string
 type NabiaDB struct {
-	Records sync.Map // Key = path; value = pointer to content
+	Records sync.Map
 }
 
 func NewNabiaDB() *NabiaDB {
@@ -55,8 +55,24 @@ func (ns *NabiaDB) Read(key string) (NabiaRecord, error) {
 // Write takes the key and a value of NabiaRecord datatype and places it on the
 // database, potentially overwriting whatever was there before, because Write
 // has no data safety features preventing the overwriting of data.
-func (ns *NabiaDB) Write(key string, value NabiaRecord) {
-	ns.Records.Store(key, &value)
+func (ns *NabiaDB) Write(key string, value NabiaRecord) error {
+	if key == "" {
+		return fmt.Errorf("key cannot be empty")
+	}
+	if value.RawData == nil {
+		return fmt.Errorf("value cannot be nil")
+	}
+	if value.ContentType == "" {
+		return fmt.Errorf("Content-Type cannot be empty")
+	}
+	pattern := `^[a-zA-Z0-9]+/[a-zA-Z0-9]+`
+	r := regexp.MustCompile(pattern)
+	if !r.MatchString(value.ContentType) {
+		return fmt.Errorf("Content-Type is not valid")
+	} else {
+		ns.Records.Store(key, &value)
+	}
+	return nil
 }
 
 // Destroy takes a key and removes it from the map. This method doesn't have

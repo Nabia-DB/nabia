@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 
@@ -47,7 +46,7 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		response = nil
 	case "POST":
 		// Creates if not exists, otherwise denies
-		body, err := ioutil.ReadAll(r.Body)
+		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			log.Println("Error: " + err.Error())
 			w.WriteHeader(http.StatusInternalServerError)
@@ -66,7 +65,7 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	case "PUT":
 		// Overwrites if exists, otherwise creates
-		body, err := ioutil.ReadAll(r.Body)
+		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			log.Println("Error: " + err.Error())
 			w.WriteHeader(http.StatusInternalServerError)
@@ -95,7 +94,7 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	case "PATCH": // TODO complete
 		// Overwrites if exists, otherwise denies
-		body, err := ioutil.ReadAll(r.Body)
+		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			log.Println("Error: " + err.Error())
 			w.WriteHeader(http.StatusInternalServerError)
