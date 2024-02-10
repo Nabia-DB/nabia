@@ -33,7 +33,7 @@ type NabiaDB struct {
 // checkOrCreateDB checks if the file exists, and if it doesn't, it creates it.
 // The first boolean indicates whether the file already existed, and the second
 // boolean indicates whether an error occurred.
-func checkOrCreateDB(location string) (bool, error) {
+func checkOrCreateFile(location string) (bool, error) {
 	// Attempt to open the file in read-only mode to check if it exists.
 	if _, err := os.Stat(location); err == nil {
 		// The file exists.
@@ -55,7 +55,7 @@ func checkOrCreateDB(location string) (bool, error) {
 }
 
 func NewNabiaDB(location string) (*NabiaDB, error) {
-	exists, err := checkOrCreateDB(location)
+	exists, err := checkOrCreateFile(location)
 	if err != nil {
 		return nil, err
 	}

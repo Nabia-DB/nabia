@@ -4,10 +4,75 @@ import (
 	"bytes"
 	"fmt"
 	"math/rand"
+	"os"
 	"strings"
 	"sync"
 	"testing"
 )
+
+func TestFileSavingAndLoading(t *testing.T) {
+	location := "test.db"
+	exists, err := checkOrCreateFile(location)
+	if err != nil {
+		t.Errorf("failed to check or create file: %s", err) // Unknown error
+	} else {
+		if exists {
+			if err := os.Remove(location); err != nil {
+				t.Errorf("failed to remove test.db: %s", err) // Unknown error
+			}
+		}
+	}
+	nabia_db, err := NewNabiaDB(location)
+	if err != nil {
+		t.Errorf("failed to create NabiaDB: %s", err) // Unknown error
+	}
+	if err := nabia_db.Write("A", *NewNabiaString("Value_A")); err != nil { // Failure when writing a value
+		t.Errorf("failed to write to NabiaDB: %s", err) // Unknown error
+	}
+	if err := nabia_db.saveToFile(location); err != nil {
+		t.Errorf("failed to save NabiaDB to file: %s", err) // Unknown error
+	}
+	if err := nabia_db.loadFromFile(location); err != nil {
+		t.Errorf("failed to load NabiaDB from file: %s", err) // Unknown error
+	}
+	exists, err = checkOrCreateFile(location)
+	if err != nil {
+		t.Errorf("failed to check or create file: %s", err)
+	} else {
+		if !exists {
+			t.Errorf("file should exist: %s", err)
+		}
+	}
+	if err := os.Remove(location); err != nil { // Deleting DB from disk
+		t.Errorf("failed to remove test.db: %s", err)
+	}
+	if !strings.Contains(nabia_db.loadFromFile(location).Error(), "no such file or directory") { // Attempting to read a file that doesn't exist should never succeed
+		t.Errorf("should not succeed when attempting to load a non-existant file: %s", err)
+	}
+	if err := nabia_db.saveToFile(location); err != nil { // Attempting to save after deletion
+		t.Errorf("failed to save NabiaDB to file: %s", err)
+	}
+	if err := nabia_db.loadFromFile(location); err != nil { // Attempting to load the database once again
+		t.Errorf("failed to load NabiaDB from file: %s", err) // Unknown error
+	}
+	nr, err := nabia_db.Read("A") // Attempting to read the value saved earlier
+	if err != nil {
+		t.Errorf("failed to read from NabiaDB: %s", err) // Unknown error
+	} else {
+		expectedData := []byte("Value_A")
+		expectedContentType := "text/plain; charset=UTF-8"
+		if !bytes.Equal(nr.RawData, expectedData) || nr.ContentType != expectedContentType {
+			t.Errorf("failed to read the correct value from NabiaDB: %s", err)
+		}
+	}
+	nr, err = nabia_db.Read("B")
+	if err == nil {
+		t.Error("should not succeed when attempting to read a non-existant key")
+	}
+	if err := os.Remove(location); err != nil { // Final DB deletion
+		t.Errorf("failed to remove test.db: %s", err)
+	}
+}
 
 func TestCRUD(t *testing.T) { // Create, Read, Update, Destroy
 
