@@ -7,7 +7,7 @@ import (
 	"log"
 	"net/http"
 
-	engine "github.com/Nabia-DB/nabia-core/engine"
+	engine "github.com/Nabia-DB/nabia/core/engine"
 	"github.com/spf13/viper"
 )
 
@@ -30,7 +30,7 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Only Read
 		value, err := h.db.Read(key)
 		if err != nil {
-			// TODO handle error
+			log.Println("Error: " + err.Error())
 			w.WriteHeader(http.StatusNotFound)
 		} else {
 			w.Header().Set("Content-Type", string(value.ContentType))
@@ -49,6 +49,7 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Creates if not exists, otherwise denies
 		body, err := ioutil.ReadAll(r.Body)
 		if err != nil {
+			log.Println("Error: " + err.Error())
 			w.WriteHeader(http.StatusInternalServerError)
 		} else {
 			if h.db.Exists(key) {
@@ -67,6 +68,7 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Overwrites if exists, otherwise creates
 		body, err := ioutil.ReadAll(r.Body)
 		if err != nil {
+			log.Println("Error: " + err.Error())
 			w.WriteHeader(http.StatusInternalServerError)
 		} else {
 			ct := r.Header.Get("Content-Type")
@@ -95,6 +97,7 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Overwrites if exists, otherwise denies
 		body, err := ioutil.ReadAll(r.Body)
 		if err != nil {
+			log.Println("Error: " + err.Error())
 			w.WriteHeader(http.StatusInternalServerError)
 		} else {
 			if h.db.Exists(key) {

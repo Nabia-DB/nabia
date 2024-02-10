@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"testing"
 
-	engine "github.com/Nabia-DB/nabia-core/engine"
+	engine "github.com/Nabia-DB/nabia/core/engine"
 )
 
 func getURL(key string) string {
