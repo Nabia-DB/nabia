@@ -88,6 +88,7 @@ func TestCRUD(t *testing.T) { // Create, Read, Update, Destroy
 	if err != nil {
 		t.Errorf("Failed to create NabiaDB: %s", err)
 	}
+	defer os.Remove("nabia.db")
 
 	if nabia_db.Exists("A") {
 		t.Error("Uninitialised database contains elements!")
