@@ -8,13 +8,26 @@ import (
 	"os"
 	"regexp"
 	"sync"
+	"sync/atomic"
 )
 
-type path = string // The key
 type ContentType = string
 type NabiaRecord struct {
 	RawData     []byte
 	ContentType ContentType // "Content-Type" https://datatracker.ietf.org/doc/html/rfc2616/#section-14.17
+}
+type stats struct {
+	reads  int64
+	writes int64
+	size   int64
+}
+type internals struct {
+	location string
+	stats    stats
+}
+type NabiaDB struct {
+	Records   sync.Map
+	internals internals
 }
 
 func NewNabiaString(s string) *NabiaRecord {
@@ -23,11 +36,6 @@ func NewNabiaString(s string) *NabiaRecord {
 
 func NewNabiaRecord(data []byte, ct ContentType) *NabiaRecord {
 	return &NabiaRecord{RawData: data, ContentType: ct}
-}
-
-type NabiaDB struct {
-	Records  sync.Map
-	location string
 }
 
 // checkOrCreateDB checks if the file exists, and if it doesn't, it creates it.
@@ -54,12 +62,27 @@ func checkOrCreateFile(location string) (bool, error) {
 	}
 }
 
+func newEmptyDB() *NabiaDB {
+	return &NabiaDB{
+		Records: sync.Map{},
+		internals: internals{
+			location: "",
+			stats: stats{
+				reads:  0, // Initialize reads to 0
+				writes: 0, // Initialize writes to 0
+				size:   0, // Initialize size to 0, assuming this is the initial size
+			},
+		},
+	}
+}
+
 func NewNabiaDB(location string) (*NabiaDB, error) {
 	exists, err := checkOrCreateFile(location)
 	if err != nil {
 		return nil, err
 	}
-	ndb := &NabiaDB{Records: sync.Map{}, location: location}
+	ndb := newEmptyDB()
+	ndb.internals.location = location
 	if exists {
 		loaded_ndb, err := loadFromFile(location)
 		if err != nil {
@@ -94,6 +117,7 @@ func (ns *NabiaDB) Read(key string) (NabiaRecord, error) {
 		if !ok {
 			return NabiaRecord{}, fmt.Errorf("type assertion to NabiaRecord failed")
 		}
+		atomic.AddInt64(&ns.internals.stats.reads, 1)
 		return record, nil
 	} else {
 		return NabiaRecord{}, fmt.Errorf("key '%s' doesn't exist", key)
@@ -117,9 +141,12 @@ func (ns *NabiaDB) Write(key string, value NabiaRecord) error {
 	r := regexp.MustCompile(pattern)
 	if !r.MatchString(value.ContentType) {
 		return fmt.Errorf("Content-Type is not valid")
-	} else {
-		ns.Records.Store(key, value)
 	}
+	atomic.AddInt64(&ns.internals.stats.writes, 1)
+	if !ns.Exists(key) {
+		atomic.AddInt64(&ns.internals.stats.size, 1)
+	}
+	ns.Records.Store(key, value)
 	return nil
 }
 
@@ -127,11 +154,15 @@ func (ns *NabiaDB) Write(key string, value NabiaRecord) error {
 // existence-checking logic. It is safe to use on empty data, it simply doesn't
 // do anything if the record doesn't exist.
 func (ns *NabiaDB) Destroy(key string) {
+	if ns.Exists(key) {
+		atomic.AddInt64(&ns.internals.stats.size, -1)
+	}
 	ns.Records.Delete(key)
+	atomic.AddInt64(&ns.internals.stats.writes, 1)
 }
 
 func (ns *NabiaDB) Stop() {
-	ns.saveToFile(ns.location)
+	ns.saveToFile(ns.internals.location)
 }
 
 func (ns *NabiaDB) saveToFile(filename string) error {
@@ -176,10 +207,13 @@ func loadFromFile(filename string) (*NabiaDB, error) {
 	}
 
 	// Convert the regular map back to a sync.Map
-	ndb := &NabiaDB{Records: sync.Map{}}
+	ndb := newEmptyDB()
+	ndb.internals.location = filename
 	for key, value := range data {
 		ndb.Write(key, value)
+		ndb.internals.stats.size++
 	}
+
 
 	return ndb, err
 }
