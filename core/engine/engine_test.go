@@ -32,7 +32,8 @@ func TestFileSavingAndLoading(t *testing.T) {
 	if err := nabia_db.saveToFile(location); err != nil {
 		t.Errorf("failed to save NabiaDB to file: %s", err) // Unknown error
 	}
-	if err := nabia_db.loadFromFile(location); err != nil {
+	nabia_db, err = loadFromFile(location)
+	if err != nil {
 		t.Errorf("failed to load NabiaDB from file: %s", err) // Unknown error
 	}
 	exists, err = checkOrCreateFile(location)
@@ -46,13 +47,15 @@ func TestFileSavingAndLoading(t *testing.T) {
 	if err := os.Remove(location); err != nil { // Deleting DB from disk
 		t.Errorf("failed to remove test.db: %s", err)
 	}
-	if !strings.Contains(nabia_db.loadFromFile(location).Error(), "no such file or directory") { // Attempting to read a file that doesn't exist should never succeed
+	_, err = loadFromFile(location)
+	if !strings.Contains(err.Error(), "no such file or directory") { // Attempting to read a file that doesn't exist should never succeed
 		t.Errorf("should not succeed when attempting to load a non-existant file: %s", err)
 	}
 	if err := nabia_db.saveToFile(location); err != nil { // Attempting to save after deletion
 		t.Errorf("failed to save NabiaDB to file: %s", err)
 	}
-	if err := nabia_db.loadFromFile(location); err != nil { // Attempting to load the database once again
+	nabia_db, err = loadFromFile(location) // Attempting to load the database once again
+	if err != nil {
 		t.Errorf("failed to load NabiaDB from file: %s", err) // Unknown error
 	}
 	nr, err := nabia_db.Read("A") // Attempting to read the value saved earlier

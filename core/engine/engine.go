@@ -61,7 +61,11 @@ func NewNabiaDB(location string) (*NabiaDB, error) {
 	}
 	ndb := &NabiaDB{Records: sync.Map{}, location: location}
 	if exists {
-		ndb.loadFromFile(location)
+		loaded_ndb, err := loadFromFile(location)
+		if err != nil {
+			return nil, err
+		}
+		return loaded_ndb, nil
 	} else {
 		if err := ndb.saveToFile(location); err != nil {
 			log.Fatalf("Failed to save to file: %s", err)
@@ -86,8 +90,11 @@ func (ns *NabiaDB) Exists(key string) bool {
 // with empty data, because the method applies a mutex.
 func (ns *NabiaDB) Read(key string) (NabiaRecord, error) {
 	if value, ok := ns.Records.Load(key); ok {
-		record := value.(*NabiaRecord)
-		return *record, nil
+		record, ok := value.(NabiaRecord)
+		if !ok {
+			return NabiaRecord{}, fmt.Errorf("type assertion to NabiaRecord failed")
+		}
+		return record, nil
 	} else {
 		return NabiaRecord{}, fmt.Errorf("key '%s' doesn't exist", key)
 	}
@@ -111,7 +118,7 @@ func (ns *NabiaDB) Write(key string, value NabiaRecord) error {
 	if !r.MatchString(value.ContentType) {
 		return fmt.Errorf("Content-Type is not valid")
 	} else {
-		ns.Records.Store(key, &value)
+		ns.Records.Store(key, value)
 	}
 	return nil
 }
@@ -124,7 +131,7 @@ func (ns *NabiaDB) Destroy(key string) {
 }
 
 func (ns *NabiaDB) Stop() {
-	return
+	ns.saveToFile(ns.location)
 }
 
 func (ns *NabiaDB) saveToFile(filename string) error {
@@ -141,9 +148,9 @@ func (ns *NabiaDB) saveToFile(filename string) error {
 	encoder := gob.NewEncoder(writer)
 
 	// Convert sync.Map to a regular map for encoding
-	data := make(map[string]*NabiaRecord)
+	data := make(map[string]NabiaRecord)
 	ns.Records.Range(func(key, value interface{}) bool {
-		data[key.(string)] = value.(*NabiaRecord)
+		data[key.(string)] = value.(NabiaRecord)
 		return true
 	})
 
@@ -151,10 +158,10 @@ func (ns *NabiaDB) saveToFile(filename string) error {
 	return encoder.Encode(data)
 }
 
-func (ns *NabiaDB) loadFromFile(filename string) error {
+func loadFromFile(filename string) (*NabiaDB, error) {
 	file, err := os.Open(filename)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer file.Close()
 
@@ -163,15 +170,16 @@ func (ns *NabiaDB) loadFromFile(filename string) error {
 	decoder := gob.NewDecoder(reader)
 
 	// Decode the map
-	data := make(map[string]*NabiaRecord)
+	data := make(map[string]NabiaRecord)
 	if err := decoder.Decode(&data); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Convert the regular map back to a sync.Map
+	ndb := &NabiaDB{Records: sync.Map{}}
 	for key, value := range data {
-		ns.Records.Store(key, value)
+		ndb.Write(key, value)
 	}
 
-	return nil
+	return ndb, err
 }
