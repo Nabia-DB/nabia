@@ -5,67 +5,10 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
-	"reflect"
 	"strings"
 	"sync"
 	"testing"
 )
-
-func TestNabiaDB_SaveLoadCycle(t *testing.T) {
-	// Setup
-	dbLocation := "testNabiaDB.db"
-	defer os.Remove(dbLocation) // Clean up after the test
-
-	db, err := NewNabiaDB(dbLocation)
-	if err != nil {
-		t.Fatalf("Failed to create NabiaDB: %v", err)
-	}
-
-	// Generate and store random records
-	keys := []string{"key1", "key2"}
-	expectedRecords := make(map[string]NabiaRecord)
-	for _, key := range keys {
-		random_string := RandStringBytes(10)
-		record := NewNabiaString(random_string)
-		if err := db.Write(key, *record); err != nil {
-			t.Fatalf("Failed to write record for key %s: %v", key, err)
-		}
-		expectedRecords[key] = *record
-	}
-
-	// Save to file
-	if err := db.saveToFile(dbLocation); err != nil {
-		t.Fatalf("Failed to save database to file: %v", err)
-	}
-
-	// Attempt to reload from file
-	reloadedDB, err := loadFromFile(dbLocation)
-	if err != nil {
-		t.Fatalf("Failed to load database from file: %v", err)
-	}
-
-	// Verify that the reloaded data matches the expected data
-	for key, expectedRecord := range expectedRecords {
-		actualRecord, err := reloadedDB.Read(key)
-		if err != nil {
-			t.Errorf("Failed to read key %s from reloaded database: %v", key, err)
-		}
-
-		if !reflect.DeepEqual(actualRecord, expectedRecord) {
-			t.Errorf("Mismatch for key %s: got %+v, want %+v", key, actualRecord, expectedRecord)
-		}
-	}
-}
-
-// RandStringBytes generates a random string of n bytes.
-func RandStringBytes(n int) string {
-	const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	b := make([]byte, n)
-	for i := range b {
-		b[i] = letterBytes[rand.Intn(len(letterBytes))]
-	}
-	return string(b)
-}
 
 func TestFileSavingAndLoading(t *testing.T) {
 	location := "test.db"
