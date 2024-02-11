@@ -102,6 +102,10 @@ func NewNabiaDB(location string) (*NabiaDB, error) {
 // Exists checks if the key name provided exists in the Nabia map. It locks
 // to read and unlocks immediately after.
 func (ns *NabiaDB) Exists(key string) bool {
+	if key == "" { // key cannot be empty
+		return false
+	}
+	atomic.AddInt64(&ns.internals.stats.reads, 1)
 	_, ok := ns.Records.Load(key)
 	return ok
 }
@@ -112,22 +116,25 @@ func (ns *NabiaDB) Exists(key string) bool {
 // be used if the "error" field is not nil. This function is safe to call even
 // with empty data, because the method applies a mutex.
 func (ns *NabiaDB) Read(key string) (NabiaRecord, error) {
+	if key == "" {
+		return NabiaRecord{}, fmt.Errorf("key cannot be empty")
+	}
+	atomic.AddInt64(&ns.internals.stats.reads, 1)
 	if value, ok := ns.Records.Load(key); ok {
 		record, ok := value.(NabiaRecord)
 		if !ok {
 			return NabiaRecord{}, fmt.Errorf("type assertion to NabiaRecord failed")
 		}
-		atomic.AddInt64(&ns.internals.stats.reads, 1)
 		return record, nil
-	} else {
-		return NabiaRecord{}, fmt.Errorf("key '%s' doesn't exist", key)
 	}
+	return NabiaRecord{}, fmt.Errorf("key '%s' doesn't exist", key)
 }
 
 // Write takes the key and a value of NabiaRecord datatype and places it on the
 // database, potentially overwriting whatever was there before, because Write
 // has no data safety features preventing the overwriting of data.
 func (ns *NabiaDB) Write(key string, value NabiaRecord) error {
+	// validation
 	if key == "" {
 		return fmt.Errorf("key cannot be empty")
 	}
@@ -142,6 +149,7 @@ func (ns *NabiaDB) Write(key string, value NabiaRecord) error {
 	if !r.MatchString(value.ContentType) {
 		return fmt.Errorf("Content-Type is not valid")
 	}
+	// writing
 	atomic.AddInt64(&ns.internals.stats.writes, 1)
 	if !ns.Exists(key) {
 		atomic.AddInt64(&ns.internals.stats.size, 1)

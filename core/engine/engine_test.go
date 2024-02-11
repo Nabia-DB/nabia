@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 )
 
 func TestFileSavingAndLoading(t *testing.T) {
-	location := "test.db"
+	location := "filesaving.db"
 	exists, err := checkOrCreateFile(location)
 	if err != nil {
 		t.Fatalf("failed to check or create file: %s", err) // Unknown error
@@ -22,11 +23,12 @@ func TestFileSavingAndLoading(t *testing.T) {
 			}
 		}
 	}
-	defer os.Remove(location)
+	os.Remove(location)
 	nabia_db, err := NewNabiaDB(location)
 	if err != nil {
 		t.Fatalf("failed to create NabiaDB: %s", err) // Unknown error
 	}
+	defer os.Remove(location)
 	if err := nabia_db.Write("A", *NewNabiaString("Value_A")); err != nil { // Failure when writing a value
 		t.Errorf("failed to write to NabiaDB: %s", err) // Unknown error
 	}
@@ -84,23 +86,31 @@ func TestCRUD(t *testing.T) { // Create, Read, Update, Destroy
 	var expected []byte
 	var expectedContentType ContentType
 
-	nabia_db, err := NewNabiaDB("nabia.db")
+	expected_stats := stats{reads: 0, writes: 0, size: 0}
+
+	nabia_db, err := NewNabiaDB("crud.db")
 	if err != nil {
 		t.Errorf("Failed to create NabiaDB: %s", err)
 	}
-	defer os.Remove("nabia.db")
+	defer os.Remove("crud.db")
 
 	if nabia_db.Exists("A") {
 		t.Error("Uninitialised database contains elements!")
 	}
+	expected_stats.reads++
 	//CREATE
 	s := NewNabiaString("Value_A")
 	nabia_db.Write("A", *s)
+	expected_stats.reads++
+	expected_stats.writes++
+	expected_stats.size++
 	if !nabia_db.Exists("A") {
 		t.Error("Database is not writing items correctly!")
 	}
+	expected_stats.reads++
 	//READ
 	nabia_read, err = nabia_db.Read("A")
+	expected_stats.reads++
 	if err != nil {
 		t.Errorf("\"Read\" returns an unexpected error:\n%q", err.Error())
 	}
@@ -114,13 +124,17 @@ func TestCRUD(t *testing.T) { // Create, Read, Update, Destroy
 	//UPDATE
 	s1 := NewNabiaRecord([]byte("Modified value"), "application/json; charset=UTF-8")
 	nabia_db.Write("A", *s1)
+	expected_stats.reads++
+	expected_stats.writes++
 	if !nabia_db.Exists("A") {
 		t.Errorf("Overwritten item doesn't exist!")
 	}
+	expected_stats.reads++
 	nabia_read, err = nabia_db.Read("A")
 	if err != nil {
 		t.Errorf("\"Read\" returns an unexpected error:\n%q", err.Error())
 	}
+	expected_stats.reads++
 	expected = []byte("Modified value")
 	expectedContentType = "application/json; charset=UTF-8"
 	for i, e := range nabia_read.RawData {
@@ -132,18 +146,32 @@ func TestCRUD(t *testing.T) { // Create, Read, Update, Destroy
 	if !nabia_db.Exists("A") {
 		t.Error("Can't destroy item because it doesn't exist!")
 	}
+	expected_stats.reads++
 	nabia_db.Destroy("A")
+	expected_stats.reads++
+	expected_stats.writes++
+	expected_stats.size--
 	if nabia_db.Exists("A") {
 		t.Error("\"Destroy\" isn't working!\nDeleted item still exists in DB.")
 	}
+	expected_stats.reads++
 
 	// Test for unknown ContentType
 	s2 := NewNabiaRecord([]byte("Unknown ContentType Value"), "unknown/type; charset=unknown")
-	nabia_db.Write("B", *s2)
-	nabia_read, _ = nabia_db.Read("B")
+	if err := nabia_db.Write("B", *s2); err != nil {
+		t.Errorf("\"Write\" returns an unexpected error:\n%q", err.Error())
+	}
+	expected_stats.reads++
+	expected_stats.writes++
+	expected_stats.size++
+	nabia_read, err = nabia_db.Read("B")
 	if nabia_read.ContentType != "unknown/type; charset=unknown" {
 		t.Error("Content type not saving correctly")
 	}
+	if err != nil {
+		t.Errorf("\"Read\" returns an unexpected error:\n%q", err.Error())
+	}
+	expected_stats.reads++
 
 	// Test for incorrect ContentType
 	s3 := NewNabiaRecord([]byte("Incorrect ContentType Value"), "QWERTYABCD")
@@ -155,12 +183,16 @@ func TestCRUD(t *testing.T) { // Create, Read, Update, Destroy
 	if err == nil {
 		t.Error("malformed Content-Type should not be written to the database")
 	}
+	expected_stats.reads++
 
 	// Test for non-existent item
 	nabia_db.Destroy("C")
+	expected_stats.reads++
+	expected_stats.writes++
 	if nabia_db.Exists("C") {
 		t.Error("\"Destroy\" isn't working!\nNon-existent item appears to exist in DB.")
 	}
+	expected_stats.reads++
 
 	// Test for incorrect key
 	incorrect_key := nabia_db.Write("", *s) // This should not be allowed
@@ -181,7 +213,20 @@ func TestCRUD(t *testing.T) { // Create, Read, Update, Destroy
 	if !strings.Contains(incorrect_value3.Error(), "Content-Type cannot be empty") {
 		t.Error("Empty NabiaRecord ContentType should not be allowed")
 	}
+	if !reflect.DeepEqual(nabia_db.internals.stats, expected_stats) {
+		t.Errorf("Stats are not as expected.\nExpected: %+v\nGot: %+v", expected_stats, nabia_db.internals.stats)
+	}
 
+	// TODO move this to a separate function
+
+}
+
+func TestConcurrency(t *testing.T) {
+	nabia_db, err := NewNabiaDB("concurrency.db")
+	if err != nil {
+		t.Errorf("Failed to create NabiaDB: %s", err)
+	}
+	defer os.Remove("concurrency.db")
 	// Concurrency test with Destroy operation
 	var wg sync.WaitGroup
 	for i := 0; i < 1000000; i++ {

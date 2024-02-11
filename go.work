@@ -1,0 +1,7 @@
+go 1.17
+
+use (
+    ./core
+    ./server
+    ./client
+    )
