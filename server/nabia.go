@@ -146,6 +146,11 @@ func main() {
 	}
 	log.Println("Found configuration file:", viper.ConfigFileUsed())
 
-	db := *engine.NewNabiaDB()
-	startServer(&db)
+	dbLocation := viper.GetString("db_location")
+
+	db, err := engine.NewNabiaDB(dbLocation)
+	if err != nil {
+		log.Fatalf("Failed to start NabiaDB: %s", err)
+	}
+	startServer(db)
 }

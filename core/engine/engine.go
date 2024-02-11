@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type ContentType = string
@@ -16,14 +17,24 @@ type NabiaRecord struct {
 	RawData     []byte
 	ContentType ContentType // "Content-Type" https://datatracker.ietf.org/doc/html/rfc2616/#section-14.17
 }
-type stats struct {
+type dataActivity struct {
 	reads  int64
 	writes int64
 	size   int64
 }
+type timestamps struct {
+	lastSave  time.Time
+	lastLoad  time.Time
+	lastRead  time.Time
+	lastWrite time.Time
+}
+type metrics struct {
+	dataActivity dataActivity
+	timestamps   timestamps
+}
 type internals struct {
 	location string
-	stats    stats
+	metrics  metrics
 }
 type NabiaDB struct {
 	Records   sync.Map
@@ -42,6 +53,9 @@ func NewNabiaRecord(data []byte, ct ContentType) *NabiaRecord {
 // The first boolean indicates whether the file already existed, and the second
 // boolean indicates whether an error occurred.
 func checkOrCreateFile(location string) (bool, error) {
+	if location == "" {
+		return false, fmt.Errorf("location cannot be empty")
+	}
 	// Attempt to open the file in read-only mode to check if it exists.
 	if _, err := os.Stat(location); err == nil {
 		// The file exists.
@@ -67,10 +81,18 @@ func newEmptyDB() *NabiaDB {
 		Records: sync.Map{},
 		internals: internals{
 			location: "",
-			stats: stats{
-				reads:  0, // Initialize reads to 0
-				writes: 0, // Initialize writes to 0
-				size:   0, // Initialize size to 0, assuming this is the initial size
+			metrics: metrics{
+				dataActivity: dataActivity{
+					reads:  0,
+					writes: 0,
+					size:   0,
+				},
+				timestamps: timestamps{
+					lastSave:  time.Now(),
+					lastLoad:  time.Now(),
+					lastRead:  time.Now(),
+					lastWrite: time.Now(),
+				},
 			},
 		},
 	}
@@ -84,7 +106,7 @@ func NewNabiaDB(location string) (*NabiaDB, error) {
 	ndb := newEmptyDB()
 	ndb.internals.location = location
 	if exists {
-		loaded_ndb, err := loadFromFile(location)
+		loaded_ndb, err := loadFromFile(location) // TODO "NewNabiaDB" should always create a new DB.
 		if err != nil {
 			return nil, err
 		}
@@ -97,15 +119,22 @@ func NewNabiaDB(location string) (*NabiaDB, error) {
 	return ndb, nil
 }
 
+func NabiaDBFromFile(location string) (*NabiaDB, error) {
+	// TODO implement
+	return nil, nil
+}
+
 // Below are the DB primitives.
 
 // Exists checks if the key name provided exists in the Nabia map. It locks
 // to read and unlocks immediately after.
+// +1 read
 func (ns *NabiaDB) Exists(key string) bool {
 	if key == "" { // key cannot be empty
 		return false
 	}
-	atomic.AddInt64(&ns.internals.stats.reads, 1)
+	ns.internals.metrics.timestamps.lastRead = time.Now()
+	atomic.AddInt64(&ns.internals.metrics.dataActivity.reads, 1)
 	_, ok := ns.Records.Load(key)
 	return ok
 }
@@ -115,11 +144,13 @@ func (ns *NabiaDB) Exists(key string) bool {
 // always check the error returned in the second parameter, as the result cannot
 // be used if the "error" field is not nil. This function is safe to call even
 // with empty data, because the method applies a mutex.
+// +1 read
 func (ns *NabiaDB) Read(key string) (NabiaRecord, error) {
 	if key == "" {
 		return NabiaRecord{}, fmt.Errorf("key cannot be empty")
 	}
-	atomic.AddInt64(&ns.internals.stats.reads, 1)
+	ns.internals.metrics.timestamps.lastRead = time.Now()
+	atomic.AddInt64(&ns.internals.metrics.dataActivity.reads, 1)
 	if value, ok := ns.Records.Load(key); ok {
 		record, ok := value.(NabiaRecord)
 		if !ok {
@@ -133,6 +164,8 @@ func (ns *NabiaDB) Read(key string) (NabiaRecord, error) {
 // Write takes the key and a value of NabiaRecord datatype and places it on the
 // database, potentially overwriting whatever was there before, because Write
 // has no data safety features preventing the overwriting of data.
+// +1 write when validation passes
+// +1 size if the key is new
 func (ns *NabiaDB) Write(key string, value NabiaRecord) error {
 	// validation
 	if key == "" {
@@ -150,9 +183,10 @@ func (ns *NabiaDB) Write(key string, value NabiaRecord) error {
 		return fmt.Errorf("Content-Type is not valid")
 	}
 	// writing
-	atomic.AddInt64(&ns.internals.stats.writes, 1)
+	ns.internals.metrics.timestamps.lastWrite = time.Now()
+	atomic.AddInt64(&ns.internals.metrics.dataActivity.writes, 1)
 	if !ns.Exists(key) {
-		atomic.AddInt64(&ns.internals.stats.size, 1)
+		atomic.AddInt64(&ns.internals.metrics.dataActivity.size, 1)
 	}
 	ns.Records.Store(key, value)
 	return nil
@@ -161,12 +195,15 @@ func (ns *NabiaDB) Write(key string, value NabiaRecord) error {
 // Destroy takes a key and removes it from the map. This method doesn't have
 // existence-checking logic. It is safe to use on empty data, it simply doesn't
 // do anything if the record doesn't exist.
+// -1 size if the key exists
+// +1 write
 func (ns *NabiaDB) Destroy(key string) {
 	if ns.Exists(key) {
-		atomic.AddInt64(&ns.internals.stats.size, -1)
+		atomic.AddInt64(&ns.internals.metrics.dataActivity.size, -1)
 	}
 	ns.Records.Delete(key)
-	atomic.AddInt64(&ns.internals.stats.writes, 1)
+	ns.internals.metrics.timestamps.lastWrite = time.Now()
+	atomic.AddInt64(&ns.internals.metrics.dataActivity.writes, 1)
 }
 
 func (ns *NabiaDB) Stop() {
@@ -208,6 +245,7 @@ func (ns *NabiaDB) saveToFile(filename string) error {
 		return err // Return the error if encoding fails
 	}
 
+	ns.internals.metrics.timestamps.lastSave = time.Now()
 	return nil // Return nil if the function completes successfully
 }
 
@@ -233,8 +271,10 @@ func loadFromFile(filename string) (*NabiaDB, error) {
 	ndb.internals.location = filename
 	for key, value := range data {
 		ndb.Write(key, value)
-		ndb.internals.stats.size++
+		ndb.internals.metrics.dataActivity.size++
 	}
+
+	ndb.internals.metrics.timestamps.lastLoad = time.Now()
 
 	return ndb, err
 }

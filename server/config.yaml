@@ -1,1 +1,2 @@
 port: "5380"
+db_location: "server.db"
