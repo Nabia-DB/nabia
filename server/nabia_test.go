@@ -22,11 +22,15 @@ func getURL(key string) string {
 }
 
 func TestHTTP(t *testing.T) { // Tests the implementation of the HTTP API
-	db := *engine.NewNabiaDB()
-	go startServer(&db)
+	db, err := engine.NewNabiaDB("test.db")
+	if err != nil {
+		t.Errorf("Failed to create Nabia DB: %q", err)
+	}
+	serverReady := make(chan struct{})
+	go startServer(db, serverReady)
+	<-serverReady // blocks until ready
 
 	var response *http.Response
-	var err error
 
 	table := []struct {
 		verb         string

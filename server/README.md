@@ -1,6 +1,6 @@
 # Nabia
 
-HTTP in-memory database
+In-memory HTTP API for the Nabia library.
 
 # FAQ
 

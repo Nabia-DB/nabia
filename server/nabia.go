@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	"time"
 
 	engine "github.com/Nabia-DB/nabia/core/engine"
 	"github.com/spf13/viper"
@@ -125,11 +127,30 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, string(response))
 }
 
-func startServer(db *engine.NabiaDB) {
+func startServer(db *engine.NabiaDB, ready chan struct{}) {
 	http_handler := NewNabiaHttp(db)
+	viper.SetDefault("port", 5380) // TODO: This is dirty, these settings should not be handled by this function
 	port := viper.GetString("port")
 	log.Println("Listening on port " + port)
-	http.ListenAndServe(":"+port, http_handler)
+	server := &http.Server{Addr: ":" + port, Handler: http_handler}
+	go func() {
+		// Start the server
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Failed to start server: %v", err)
+		}
+	}()
+	// Check if the server is ready by trying to connect to it
+	for {
+		conn, err := net.Dial("tcp", ":"+port)
+		if err != nil {
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		conn.Close()
+		break
+	}
+	// Signal that the server is ready
+	close(ready)
 }
 
 func main() {
@@ -152,5 +173,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to start NabiaDB: %s", err)
 	}
-	startServer(db)
+	ready := make(chan struct{})
+	startServer(db, ready)
+	<-ready
+	select {}
 }
