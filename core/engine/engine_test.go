@@ -86,7 +86,7 @@ func TestCRUD(t *testing.T) { // Create, Read, Update, Destroy
 	var nabia_read NabiaRecord
 	var expected []byte
 	var expected_content_type ContentType
-	expected_stats := stats{reads: 0, writes: 0, size: 0}
+	expected_stats := dataActivity{reads: 0, writes: 0, size: 0}
 
 	nabiaDB, err := NewNabiaDB("crud.db")
 	if err != nil {
@@ -213,8 +213,8 @@ func TestCRUD(t *testing.T) { // Create, Read, Update, Destroy
 	if !strings.Contains(incorrect_value3.Error(), "Content-Type cannot be empty") {
 		t.Error("Empty NabiaRecord ContentType should not be allowed")
 	}
-	if !reflect.DeepEqual(nabiaDB.internals.stats, expected_stats) {
-		t.Errorf("Stats are not as expected.\nExpected: %+v\nGot: %+v", expected_stats, nabiaDB.internals.stats)
+	if !reflect.DeepEqual(nabiaDB.internals.metrics.dataActivity, expected_stats) {
+		t.Errorf("Stats are not as expected.\nExpected: %+v\nGot: %+v", expected_stats, nabiaDB.internals.metrics.dataActivity)
 	}
 
 	// TODO move this to a separate function
@@ -222,7 +222,7 @@ func TestCRUD(t *testing.T) { // Create, Read, Update, Destroy
 }
 
 func TestConcurrency(t *testing.T) {
-	expected_stats := stats{reads: 0, writes: 0, size: 0}
+	expected_stats := dataActivity{reads: 0, writes: 0, size: 0}
 	nabiaDB, err := NewNabiaDB("concurrency.db")
 	if err != nil {
 		t.Errorf("Failed to create NabiaDB: %s", err)
@@ -294,8 +294,8 @@ func TestConcurrency(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
-	if !reflect.DeepEqual(nabiaDB.internals.stats, expected_stats) {
-		t.Errorf("Stats are not as expected.\nExpected: %+v\nGot: %+v", expected_stats, nabiaDB.internals.stats)
+	if !reflect.DeepEqual(nabiaDB.internals.metrics.dataActivity, expected_stats) {
+		t.Errorf("Stats are not as expected.\nExpected: %+v\nGot: %+v", expected_stats, nabiaDB.internals.metrics.dataActivity)
 	}
 
 }
