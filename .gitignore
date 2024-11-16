@@ -1,3 +1,4 @@
 core/engine/nabia.db
 core/engine/test.db
 .idea/*
+client/nabia-client

@@ -42,7 +42,7 @@ type NabiaDB struct {
 }
 
 func NewNabiaString(s string) *NabiaRecord {
-	return &NabiaRecord{RawData: []byte(s), ContentType: "text/plain; charset=UTF-8"}
+	return &NabiaRecord{RawData: []byte(s), ContentType: "text/plain; charset=utf-8"}
 }
 
 func NewNabiaRecord(data []byte, ct ContentType) *NabiaRecord {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"testing"
 
 	engine "github.com/Nabia-DB/nabia/core/engine"
@@ -21,8 +22,24 @@ func getURL(key string) string {
 	return result
 }
 
+func cleanup(filename string, t *testing.T) {
+	if _, err := os.Stat(filename); err == nil {
+		// File exists, attempt to delete it
+		err := os.Remove(filename)
+		if err != nil {
+			t.Fatalf("Failed to delete file: %q", err)
+		}
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("Unknown error: %q", err)
+	}
+}
+
 func TestHTTP(t *testing.T) { // Tests the implementation of the HTTP API
-	db, err := engine.NewNabiaDB("test.db")
+	filename := "test.db"
+	cleanup(filename, t)
+	defer cleanup(filename, t) // Ensure cleaning up test files
+
+	db, err := engine.NewNabiaDB(filename)
 	if err != nil {
 		t.Errorf("Failed to create Nabia DB: %q", err)
 	}

@@ -21,7 +21,7 @@ func NewNabiaHttp(ns *engine.NabiaDB) *NabiaHTTP {
 }
 
 // These are the higher-level HTTP API calls exposed via the desired port, which
-// in turn call the CRUD primitives.
+// in turn call the CRUD primitives from core.
 
 func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var response []byte
@@ -34,6 +34,7 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			log.Println("Error: " + err.Error())
 			w.WriteHeader(http.StatusNotFound)
 		} else {
+			log.Println("Info: Serving data from key " + key)
 			w.Header().Set("Content-Type", string(value.ContentType))
 			response = value.RawData
 		}
@@ -94,31 +95,12 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNotFound)
 			// TODO DRY
 		}
-	case "PATCH": // TODO complete
-		// Overwrites if exists, otherwise denies
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			log.Println("Error: " + err.Error())
-			w.WriteHeader(http.StatusInternalServerError)
-		} else {
-			if h.db.Exists(key) {
-				ct := r.Header.Get("Content-Type")
-				if ct == "" {
-					ct = "application/octet-stream" // Set generic Content-Type if not provided by the client
-				}
-				record := engine.NewNabiaRecord(body, engine.ContentType(ct))
-				h.db.Write(key, *record)
-				w.WriteHeader(http.StatusOK)
-			} else {
-				w.WriteHeader(http.StatusNotFound)
-			}
-		}
 	case "OPTIONS": // TODO complete
 		// TODO tests
 		if h.db.Exists(key) {
-			w.Header().Set("Allow", "GET, PUT, PATCH, DELETE")
+			w.Header().Set("Allow", "GET, PUT, DELETE, HEAD")
 		} else {
-			w.Header().Set("Allow", "PUT, POST")
+			w.Header().Set("Allow", "PUT, POST, HEAD")
 		}
 		w.WriteHeader(http.StatusOK)
 	default:

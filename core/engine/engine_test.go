@@ -67,7 +67,7 @@ func TestFileSavingAndLoading(t *testing.T) {
 		t.Fatalf("failed to read from NabiaDB: %s", err) // Unknown error
 	} else {
 		expectedData := []byte("Value_A")
-		expected_content_type := "text/plain; charset=UTF-8"
+		expected_content_type := "text/plain; charset=utf-8"
 		if !bytes.Equal(nr.RawData, expectedData) || nr.ContentType != expected_content_type {
 			t.Errorf("failed to read the correct value from NabiaDB: %s", err)
 		}
@@ -115,7 +115,7 @@ func TestCRUD(t *testing.T) { // Create, Read, Update, Destroy
 		t.Errorf("\"Read\" returns an unexpected error:\n%q", err.Error())
 	}
 	expected = []byte("Value_A")
-	expected_content_type = "text/plain; charset=UTF-8"
+	expected_content_type = "text/plain; charset=utf-8"
 	for i, e := range nabia_read.RawData {
 		if e != expected[i] || nabia_read.ContentType != expected_content_type {
 			t.Errorf("\"Read\" returns unexpected data or ContentType!\nGot %q, expected %q", nabia_read, expected)
@@ -235,7 +235,7 @@ func TestConcurrency(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			key := fmt.Sprintf("Key_%d", i)
-			value := NewNabiaRecord([]byte(fmt.Sprintf("Value_%d", i)), "text/plain; charset=UTF-8")
+			value := NewNabiaRecord([]byte(fmt.Sprintf("Value_%d", i)), "text/plain; charset=utf-8")
 			operation := rand.Intn(3)
 			switch operation {
 			case 0:
