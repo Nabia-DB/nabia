@@ -180,7 +180,7 @@ func main() {
 				if ctype == "text/plain; charset=utf-8" && utf8.Valid(data) {
 					fmt.Printf("%q\n", string(data))
 				} else {
-					fmt.Println("Data is not plaintext Unicode, refusing to print to stdout.")
+					fmt.Printf("Data is %q, not plain text, refusing to print to stdout.\n", ctype)
 				}
 			}
 		},
@@ -223,11 +223,10 @@ func main() {
 				log.Fatal("Either a value or --file must be provided")
 			}
 			ctype = detectBytesliceMimetype(content)
-			response, err := postData(key, host, uint16(port), content, ctype)
+			err = postData(key, host, uint16(port), content, ctype)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
 			}
-			fmt.Printf("Response was %q\n", response)
 		},
 	}
 
@@ -267,7 +266,7 @@ func main() {
 				log.Fatal("Either a value or --file must be provided")
 			}
 			ctype = detectBytesliceMimetype(content)
-			err := putData(key, host, uint16(port), content, ctype)
+			err = putData(key, host, uint16(port), content, ctype)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
 			}

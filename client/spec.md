@@ -54,7 +54,34 @@ Two methods for reading data are possible: `GET` and `HEAD`.
 
 `GET` simply retrieves data from the Nabia server. If the content-type is `text/plain; charset=utf-8`, then it will print it to stdout. Otherwise, it refuses to print it.
 
+```
+$ ./nabia-client PUT /test "test123"
+Putting value "test123" to key /test at localhost:5380
+$ ./nabia-client GET /test
+Getting key /test from localhost:5380
+"test123"
+```
+
+```
+$ ./nabia-client PUT /test --file $HOME/Downloads/sample.png
+Putting content of file /home/x000/Downloads/sample.png to key /test at localhost:5380
+$ ./nabia-client GET /test
+Getting key /test from localhost:5380
+Data is "image/png", not plain text, refusing to print to stdout.
+```
+
 #### `HEAD`
+
+`HEAD` will return status code `200 OK` whenever the requested key exists:
+
+```
+$ ./nabia-client HEAD /test
+Checking if key /test exists at localhost:5380
+Key "/test" exists
+$ ./nabia-client HEAD /non-existing-test
+Checking if key /non-existing-test exists at localhost:5380
+Key "/non-existing-test" does not exist
+```
 
 ### Updating data
 
@@ -65,6 +92,20 @@ Two methods for reading data are possible: `GET` and `HEAD`.
 `DELETE` is the only method that exists to delete data given a key. Deletions are irreversible.
 
 The Nabia client does not check if the key exists before attempting to delete it. If this is necessary, a `HEAD` must be issued prior to deletion. Deleting non-existing keys will return a `404 Not Found` error.
+
+```
+$ ./nabia-client DELETE /test
+Deleting key /test from localhost:5380
+$ ./nabia-client HEAD /test
+Checking if key /test exists at localhost:5380
+Key "/test" does not exist
+$ ./nabia-client DELETE /test
+Deleting key /test from localhost:5380
+expected 2xx response code, got 404 Not Found
+$ ./nabia-client DELETE /non-existing-test
+Deleting key /non-existing-test from localhost:5380
+expected 2xx response code, got 404 Not Found
+```
 
 ## Other features
 
@@ -96,4 +137,4 @@ curl localhost:5380/test -v 2>&1 | grep -i Content-Type
 < Content-Type: image/png
 ```
 
-Gets us the expected results.
+also gets us the expected results.
