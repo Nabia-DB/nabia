@@ -114,26 +114,26 @@ expected 2xx response code, got 404 Not Found
 The Nabia client has two ways of uploading data to the Nabia database. You can either supply a string via the terminal as an argument:
 
 ```
-./nabia-client POST /test inline_string
+$ ./nabia-client POST /test inline_string
 Posting value "test" to key /test at localhost:5380
 ```
 
 Then, using `curl` we see the `Content-Type` was automatically set to UTF-8 plain text, as we supplied a string via the terminal.
 
 ```
-curl localhost:5380/test -v 2>&1 | grep -i Content-Type
+$ curl localhost:5380/test -v 2>&1 | grep -i Content-Type
 < Content-Type: text/plain; charset=utf-8
 ```
 
 Now, uploading a sample image with `.png` extension, and without having to manually supply the Content-Type:
 
 ```
-./nabia-client PUT /test --file $HOME/Downloads/sample.png
+$ ./nabia-client PUT /test --file $HOME/Downloads/sample.png
 Putting content of file /home/x000/Downloads/sample.png to key /test at localhost:5380
 ```
 
 ```
-curl localhost:5380/test -v 2>&1 | grep -i Content-Type
+$ curl localhost:5380/test -v 2>&1 | grep -i Content-Type
 < Content-Type: image/png
 ```
 
