@@ -16,6 +16,42 @@ type NabiaHTTP struct {
 	db *engine.NabiaDB
 }
 
+type nabiaServerRecord struct {
+	data        []byte
+	contentType string
+}
+
+func (nsr *nabiaServerRecord) GetRawData() []byte {
+	return nsr.data
+}
+
+func (nsr *nabiaServerRecord) GetContentType() string {
+	return nsr.contentType
+}
+
+func extractDataAndContentType(record *engine.NabiaRecord) ([]byte, string, error) {
+	// Assert the type of RawData
+	rd := record.GetRawData()
+	nsr, ok := rd.(*nabiaServerRecord)
+	if !ok {
+		return nil, "", fmt.Errorf("RawData is not of type *nabiaServerRecord")
+	}
+	return nsr.GetRawData(), nsr.GetContentType(), nil
+}
+
+func newNabiaServerRecord(data []byte, ct string) (*engine.NabiaRecord, error) {
+	// TODO add content type validation
+	nsr := &nabiaServerRecord{
+		data:        data,
+		contentType: ct,
+	}
+	nr, err := engine.NewNabiaRecord(nsr)
+	if err != nil {
+		return nil, err
+	}
+	return nr, nil
+}
+
 func NewNabiaHttp(ns *engine.NabiaDB) *NabiaHTTP {
 	return &NabiaHTTP{db: ns}
 }
@@ -31,12 +67,18 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Only Read
 		value, err := h.db.Read(key)
 		if err != nil {
-			log.Println("Error: " + err.Error())
+			log.Printf("Error: %s", err.Error())
 			w.WriteHeader(http.StatusNotFound)
 		} else {
-			log.Println("Info: Serving data from key " + key)
-			w.Header().Set("Content-Type", string(value.ContentType))
-			response = value.RawData
+			data, ct, err := extractDataAndContentType(&value)
+			if err != nil {
+				log.Printf("Error: %s", err.Error())
+				w.WriteHeader(http.StatusInternalServerError)
+			} else {
+				log.Printf("Info: Serving data from key %q", key)
+				w.Header().Set("Content-Type", ct)
+				response = data
+			}
 		}
 	case "HEAD": // TODO tests
 		w.Header().Del("Content-Type")
@@ -60,10 +102,15 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				ct := r.Header.Get("Content-Type")
 				if ct == "" {
 					ct = "application/octet-stream"
+				} // TODO Content-Type validation needs more checks
+				record, err := newNabiaServerRecord(body, ct)
+				if err != nil {
+					fmt.Printf("Error: %s", err)
+					w.WriteHeader(http.StatusInternalServerError)
+				} else {
+					h.db.Write(key, *record)
+					w.WriteHeader(http.StatusCreated)
 				}
-				record := engine.NewNabiaRecord(body, engine.ContentType(ct))
-				h.db.Write(key, *record)
-				w.WriteHeader(http.StatusCreated)
 			}
 		}
 	case "PUT":
@@ -77,13 +124,18 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if ct == "" {
 				ct = "application/octet-stream" // Set generic Content-Type if not provided by the client
 			}
-			record := engine.NewNabiaRecord(body, engine.ContentType(ct))
 			existed := h.db.Exists(key)
-			h.db.Write(key, *record)
-			if existed {
-				w.WriteHeader(http.StatusOK)
+			record, err := newNabiaServerRecord(body, ct)
+			if err != nil {
+				fmt.Printf("Error: %s", err)
+				w.WriteHeader(http.StatusInternalServerError)
 			} else {
-				w.WriteHeader(http.StatusCreated)
+				h.db.Write(key, *record)
+				if existed {
+					w.WriteHeader(http.StatusOK)
+				} else {
+					w.WriteHeader(http.StatusCreated)
+				}
 			}
 		}
 	case "DELETE": // TODO tests

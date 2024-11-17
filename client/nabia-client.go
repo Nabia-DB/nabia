@@ -223,10 +223,11 @@ func main() {
 				log.Fatal("Either a value or --file must be provided")
 			}
 			ctype = detectBytesliceMimetype(content)
-			err = postData(key, host, uint16(port), content, ctype)
+			response, err := postData(key, host, uint16(port), content, ctype)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
 			}
+			fmt.Printf("Response was %q\n", response)
 		},
 	}
 
@@ -266,7 +267,7 @@ func main() {
 				log.Fatal("Either a value or --file must be provided")
 			}
 			ctype = detectBytesliceMimetype(content)
-			err = putData(key, host, uint16(port), content, ctype)
+			err := putData(key, host, uint16(port), content, ctype)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
 			}

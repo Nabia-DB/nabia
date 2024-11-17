@@ -4,18 +4,14 @@ import (
 	"bufio"
 	"encoding/gob"
 	"fmt"
-	"log"
 	"os"
-	"regexp"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
-type ContentType = string
 type NabiaRecord struct {
-	RawData     []byte
-	ContentType ContentType // "Content-Type" https://datatracker.ietf.org/doc/html/rfc2616/#section-14.17
+	RawData interface{}
 }
 type dataActivity struct {
 	reads  int64
@@ -41,12 +37,15 @@ type NabiaDB struct {
 	internals internals
 }
 
-func NewNabiaString(s string) *NabiaRecord {
-	return &NabiaRecord{RawData: []byte(s), ContentType: "text/plain; charset=utf-8"}
+func NewNabiaRecord(data interface{}) (*NabiaRecord, error) { // TODO this function can be expanded later
+	if data == nil {
+		return nil, fmt.Errorf("data cannot be nil")
+	}
+	return &NabiaRecord{RawData: data}, nil
 }
 
-func NewNabiaRecord(data []byte, ct ContentType) *NabiaRecord {
-	return &NabiaRecord{RawData: data, ContentType: ct}
+func (nr *NabiaRecord) GetRawData() interface{} {
+	return nr.RawData
 }
 
 // checkOrCreateDB checks if the file exists, and if it doesn't, it creates it.
@@ -99,29 +98,16 @@ func newEmptyDB() *NabiaDB {
 }
 
 func NewNabiaDB(location string) (*NabiaDB, error) {
-	exists, err := checkOrCreateFile(location)
-	if err != nil {
-		return nil, err
-	}
 	ndb := newEmptyDB()
 	ndb.internals.location = location
-	if exists {
-		loaded_ndb, err := loadFromFile(location) // TODO "NewNabiaDB" should always create a new DB.
-		if err != nil {
-			return nil, err
-		}
-		return loaded_ndb, nil
-	} else {
-		if err := ndb.saveToFile(location); err != nil {
-			log.Fatalf("Failed to save to file: %s", err)
-		}
+	if err := ndb.saveToFile(location); err != nil {
+		return nil, err
 	}
 	return ndb, nil
 }
 
 func NabiaDBFromFile(location string) (*NabiaDB, error) {
-	// TODO implement
-	return nil, nil
+	return loadFromFile(location)
 }
 
 // Below are the DB primitives.
@@ -174,14 +160,6 @@ func (ns *NabiaDB) Write(key string, value NabiaRecord) error {
 	if value.RawData == nil {
 		return fmt.Errorf("value cannot be nil")
 	}
-	if value.ContentType == "" {
-		return fmt.Errorf("Content-Type cannot be empty")
-	}
-	pattern := `^[a-zA-Z0-9]+/[a-zA-Z0-9]+`
-	r := regexp.MustCompile(pattern)
-	if !r.MatchString(value.ContentType) {
-		return fmt.Errorf("Content-Type is not valid")
-	}
 	// writing
 	ns.internals.metrics.timestamps.lastWrite = time.Now()
 	atomic.AddInt64(&ns.internals.metrics.dataActivity.writes, 1)
@@ -208,6 +186,7 @@ func (ns *NabiaDB) Destroy(key string) {
 
 func (ns *NabiaDB) Stop() {
 	ns.saveToFile(ns.internals.location)
+	// TODO emit a shutdown signal
 }
 
 func (ns *NabiaDB) saveToFile(filename string) error {
