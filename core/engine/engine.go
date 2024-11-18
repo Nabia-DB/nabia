@@ -1,8 +1,6 @@
 package engine
 
 import (
-	"bufio"
-	"encoding/gob"
 	"fmt"
 	"os"
 	"sync"
@@ -10,8 +8,8 @@ import (
 	"time"
 )
 
-type NabiaRecord struct {
-	RawData interface{}
+type NabiaRecord[T any] struct {
+	RawData T
 }
 type dataActivity struct {
 	reads  int64
@@ -37,14 +35,11 @@ type NabiaDB struct {
 	internals internals
 }
 
-func NewNabiaRecord(data interface{}) (*NabiaRecord, error) { // TODO this function can be expanded later
-	if data == nil {
-		return nil, fmt.Errorf("data cannot be nil")
-	}
-	return &NabiaRecord{RawData: data}, nil
+func NewNabiaRecord[T any](data T) (*NabiaRecord[T], error) { // TODO this function can be expanded later
+	return &NabiaRecord[T]{RawData: data}, nil
 }
 
-func (nr *NabiaRecord) GetRawData() interface{} {
+func (nr *NabiaRecord[T]) GetRawData() interface{} {
 	return nr.RawData
 }
 
@@ -126,25 +121,21 @@ func (ns *NabiaDB) Exists(key string) bool {
 }
 
 // Read takes a key name and attempts to pull the data from the Nabia DB map.
-// Returns a NabiaRecord (if found) and an error (if not found). Callers must
+// Returns a NabiaRecord if found and an error if not found. Callers must
 // always check the error returned in the second parameter, as the result cannot
 // be used if the "error" field is not nil. This function is safe to call even
 // with empty data, because the method applies a mutex.
 // +1 read
-func (ns *NabiaDB) Read(key string) (NabiaRecord, error) {
+func (ns *NabiaDB) Read(key string) (interface{}, error) {
 	if key == "" {
-		return NabiaRecord{}, fmt.Errorf("key cannot be empty")
+		return nil, fmt.Errorf("key cannot be empty")
 	}
 	ns.internals.metrics.timestamps.lastRead = time.Now()
 	atomic.AddInt64(&ns.internals.metrics.dataActivity.reads, 1)
 	if value, ok := ns.Records.Load(key); ok {
-		record, ok := value.(NabiaRecord)
-		if !ok {
-			return NabiaRecord{}, fmt.Errorf("type assertion to NabiaRecord failed")
-		}
-		return record, nil
+		return value, nil
 	}
-	return NabiaRecord{}, fmt.Errorf("key '%s' doesn't exist", key)
+	return nil, fmt.Errorf("key '%s' doesn't exist", key)
 }
 
 // Write takes the key and a value of NabiaRecord datatype and places it on the
@@ -152,13 +143,10 @@ func (ns *NabiaDB) Read(key string) (NabiaRecord, error) {
 // has no data safety features preventing the overwriting of data.
 // +1 write when validation passes
 // +1 size if the key is new
-func (ns *NabiaDB) Write(key string, value NabiaRecord) error {
+func (ns *NabiaDB) Write(key string, value interface{}) error {
 	// validation
 	if key == "" {
 		return fmt.Errorf("key cannot be empty")
-	}
-	if value.RawData == nil {
-		return fmt.Errorf("value cannot be nil")
 	}
 	// writing
 	ns.internals.metrics.timestamps.lastWrite = time.Now()
@@ -175,7 +163,7 @@ func (ns *NabiaDB) Write(key string, value NabiaRecord) error {
 // do anything if the record doesn't exist.
 // -1 size if the key exists
 // +1 write
-func (ns *NabiaDB) Destroy(key string) {
+func Delete(ns *NabiaDB, key string) {
 	if ns.Exists(key) {
 		atomic.AddInt64(&ns.internals.metrics.dataActivity.size, -1)
 	}
@@ -189,71 +177,81 @@ func (ns *NabiaDB) Stop() {
 	// TODO emit a shutdown signal
 }
 
+// TODO: Saving and loading must be reimplemented because of generics
+
 func (ns *NabiaDB) saveToFile(filename string) error {
-	// Open or create the file for writing. os.Create truncates the file if it already exists.
-	file, err := os.Create(filename)
-	if err != nil {
-		return err // Return the error if file creation fails
-	}
-	defer file.Close() // Ensure the file is closed after writing is complete
-
-	// Use a buffered writer for efficient file writing
-	writer := bufio.NewWriter(file)
-	defer writer.Flush() // Ensure buffered data is flushed to file
-
-	// Create a new gob encoder that writes to the buffered writer
-	encoder := gob.NewEncoder(writer)
-
-	// Prepare a regular map to hold the data from sync.Map
-	// This is necessary because gob cannot directly encode/decode sync.Map
-	data := make(map[string]NabiaRecord)
-
-	// Copy data from sync.Map to the regular map
-	ns.Records.Range(func(key, value interface{}) bool {
-		strKey, okKey := key.(string)               // Ensure the key is of type string
-		nabiaRecord, okValue := value.(NabiaRecord) // Ensure the value is of type NabiaRecord
-		if okKey && okValue {
-			data[strKey] = nabiaRecord
-		}
-		return true // Continue iterating over all entries in the sync.Map
-	})
-
-	// Encode the regular map into the file
-	err = encoder.Encode(data)
-	if err != nil {
-		return err // Return the error if encoding fails
-	}
-
-	ns.internals.metrics.timestamps.lastSave = time.Now()
-	return nil // Return nil if the function completes successfully
+	return nil
 }
 
 func loadFromFile(filename string) (*NabiaDB, error) {
-	file, err := os.Open(filename)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	// Use a buffered reader for better performance
-	reader := bufio.NewReader(file)
-	decoder := gob.NewDecoder(reader)
-
-	// Decode the map
-	data := make(map[string]NabiaRecord)
-	if err := decoder.Decode(&data); err != nil {
-		return nil, err
-	}
-
-	// Convert the regular map back to a sync.Map
-	ndb := newEmptyDB()
-	ndb.internals.location = filename
-	for key, value := range data {
-		ndb.Write(key, value)
-		ndb.internals.metrics.dataActivity.size++
-	}
-
-	ndb.internals.metrics.timestamps.lastLoad = time.Now()
-
-	return ndb, err
+	return nil, nil
 }
+
+// func (ns *NabiaDB) saveToFile(filename string) error {
+// 	// Open or create the file for writing. os.Create truncates the file if it already exists.
+// 	file, err := os.Create(filename)
+// 	if err != nil {
+// 		return err // Return the error if file creation fails
+// 	}
+// 	defer file.Close() // Ensure the file is closed after writing is complete
+
+// 	// Use a buffered writer for efficient file writing
+// 	writer := bufio.NewWriter(file)
+// 	defer writer.Flush() // Ensure buffered data is flushed to file
+
+// 	// Create a new gob encoder that writes to the buffered writer
+// 	encoder := gob.NewEncoder(writer)
+
+// 	// Prepare a regular map to hold the data from sync.Map
+// 	// This is necessary because gob cannot directly encode/decode sync.Map
+// 	data := make(map[string]NabiaRecord[T])
+
+// 	// Copy data from sync.Map to the regular map
+// 	ns.Records.Range(func(key, value interface{}) bool {
+// 		strKey, okKey := key.(string)               // Ensure the key is of type string
+// 		nabiaRecord, okValue := value.(NabiaRecord) // Ensure the value is of type NabiaRecord
+// 		if okKey && okValue {
+// 			data[strKey] = nabiaRecord
+// 		}
+// 		return true // Continue iterating over all entries in the sync.Map
+// 	})
+
+// 	// Encode the regular map into the file
+// 	err = encoder.Encode(data)
+// 	if err != nil {
+// 		return err // Return the error if encoding fails
+// 	}
+
+// 	ns.internals.metrics.timestamps.lastSave = time.Now()
+// 	return nil // Return nil if the function completes successfully
+// }
+
+// func loadFromFile(filename string) (*NabiaDB, error) {
+// 	file, err := os.Open(filename)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	defer file.Close()
+
+// 	// Use a buffered reader for better performance
+// 	reader := bufio.NewReader(file)
+// 	decoder := gob.NewDecoder(reader)
+
+// 	// Decode the map
+// 	data := make(map[string]NabiaRecord)
+// 	if err := decoder.Decode(&data); err != nil {
+// 		return nil, err
+// 	}
+
+// 	// Convert the regular map back to a sync.Map
+// 	ndb := newEmptyDB()
+// 	ndb.internals.location = filename
+// 	for key, value := range data {
+// 		ndb.Write(key, value)
+// 		ndb.internals.metrics.dataActivity.size++
+// 	}
+
+// 	ndb.internals.metrics.timestamps.lastLoad = time.Now()
+
+// 	return ndb, err
+// }

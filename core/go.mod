@@ -1,6 +1,6 @@
 module github.com/Nabia-DB/nabia/core
 
-go 1.17
+go 1.22
 
 require (
 	github.com/fsnotify/fsnotify v1.7.0 // indirect

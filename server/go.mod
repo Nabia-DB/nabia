@@ -1,6 +1,6 @@
 module github.com/Nabia-DB/nabia/server
 
-go 1.17
+go 1.22
 
 require (
 	github.com/Nabia-DB/nabia/core v0.0.0-20240209210523-23cd6bb486c1 // indirect

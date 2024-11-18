@@ -29,19 +29,13 @@ func (nsr *nabiaServerRecord) GetContentType() string {
 	return nsr.contentType
 }
 
-func extractDataAndContentType(record *engine.NabiaRecord) ([]byte, string, error) {
-	// Assert the type of RawData
-	rd := record.GetRawData()
-	nsr, ok := rd.(*nabiaServerRecord)
-	if !ok {
-		return nil, "", fmt.Errorf("RawData is not of type *nabiaServerRecord")
-	}
-	return nsr.GetRawData(), nsr.GetContentType(), nil
+func extractDataAndContentType(record *nabiaServerRecord) ([]byte, string, error) {
+	return record.GetRawData(), record.GetContentType(), nil
 }
 
-func newNabiaServerRecord(data []byte, ct string) (*engine.NabiaRecord, error) {
+func newNabiaServerRecord(data []byte, ct string) (*engine.NabiaRecord[nabiaServerRecord], error) {
 	// TODO add content type validation
-	nsr := &nabiaServerRecord{
+	nsr := nabiaServerRecord{
 		data:        data,
 		contentType: ct,
 	}
@@ -70,7 +64,8 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			log.Printf("Error: %s", err.Error())
 			w.WriteHeader(http.StatusNotFound)
 		} else {
-			data, ct, err := extractDataAndContentType(&value)
+			nsr := value.(engine.NabiaRecord[nabiaServerRecord])
+			data, ct, err := extractDataAndContentType(&nsr.RawData)
 			if err != nil {
 				log.Printf("Error: %s", err.Error())
 				w.WriteHeader(http.StatusInternalServerError)
@@ -141,7 +136,7 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "DELETE": // TODO tests
 		// Only Destroy
 		if h.db.Exists(key) {
-			h.db.Destroy(key)
+			engine.Delete(h.db, key)
 			w.WriteHeader(http.StatusOK)
 		} else { // TODO change if else with case
 			w.WriteHeader(http.StatusNotFound)
