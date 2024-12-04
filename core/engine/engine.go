@@ -95,15 +95,16 @@ func newEmptyDB() *NabiaDB {
 func NewNabiaDB(location string) (*NabiaDB, error) {
 	ndb := newEmptyDB()
 	ndb.internals.location = location
-	if err := ndb.saveToFile(location); err != nil {
-		return nil, err
-	}
+	//if err := ndb.saveToFile(location); err != nil {
+	//	return nil, err
+	//}
 	return ndb, nil
 }
 
-func NabiaDBFromFile(location string) (*NabiaDB, error) {
-	return loadFromFile(location)
-}
+// TODO NabiaDBFromFile must be reimplemented
+//func NabiaDBFromFile(location string) (*NabiaDB, error) {
+//	return loadFromFile(location)
+//}
 
 // Below are the DB primitives.
 
@@ -135,7 +136,7 @@ func (ns *NabiaDB) Read(key string) (interface{}, error) {
 	if value, ok := ns.Records.Load(key); ok {
 		return value, nil
 	}
-	return nil, fmt.Errorf("key '%s' doesn't exist", key)
+	return nil, fmt.Errorf("key %q doesn't exist", key)
 }
 
 // Write takes the key and a value of NabiaRecord datatype and places it on the
@@ -158,7 +159,7 @@ func (ns *NabiaDB) Write(key string, value interface{}) error {
 	return nil
 }
 
-// Destroy takes a key and removes it from the map. This method doesn't have
+// Delete takes a key and removes it from the map. This method doesn't have
 // existence-checking logic. It is safe to use on empty data, it simply doesn't
 // do anything if the record doesn't exist.
 // -1 size if the key exists

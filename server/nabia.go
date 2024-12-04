@@ -56,6 +56,15 @@ func NewNabiaHttp(ns *engine.NabiaDB) *NabiaHTTP {
 func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var response []byte
 	key := r.URL.Path
+	clientIP, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		log.Printf("Error: %s", err.Error())
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write(nil)
+		return
+	} else {
+		log.Printf("%s %s from %s", r.Method, key, clientIP)
+	}
 	switch r.Method {
 	case "GET": // TODO tests
 		// Only Read
@@ -153,12 +162,14 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
-	io.WriteString(w, string(response))
+	w.Write(response)
 }
 
+// startServer forks into a goroutine to make a server, then, making use of the
+// ready channel, informs the caller when the server is ready to receive requests
 func startServer(db *engine.NabiaDB, ready chan struct{}) {
 	http_handler := NewNabiaHttp(db)
-	viper.SetDefault("port", 5380) // TODO: This is dirty, these settings should not be handled by this function
+	viper.SetDefault("port", 5380)
 	port := viper.GetString("port")
 	log.Println("Listening on port " + port)
 	server := &http.Server{Addr: ":" + port, Handler: http_handler}
