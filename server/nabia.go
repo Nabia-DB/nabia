@@ -34,7 +34,6 @@ func extractDataAndContentType(record *nabiaServerRecord) ([]byte, string, error
 }
 
 func newNabiaServerRecord(data []byte, ct string) (*engine.NabiaRecord[nabiaServerRecord], error) {
-	// TODO add content type validation
 	nsr := nabiaServerRecord{
 		data:        data,
 		contentType: ct,
@@ -58,7 +57,7 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	key := r.URL.Path
 	clientIP, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		log.Printf("Error: %s", err.Error())
+		log.Printf("Error: %s\n", err.Error())
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write(nil)
 		return
@@ -147,11 +146,11 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if h.db.Exists(key) {
 			engine.Delete(h.db, key)
 			w.WriteHeader(http.StatusOK)
-		} else { // TODO change if else with case
+		} else {
 			w.WriteHeader(http.StatusNotFound)
 			// TODO DRY
 		}
-	case "OPTIONS": // TODO complete
+	case "OPTIONS":
 		// TODO tests
 		if h.db.Exists(key) {
 			w.Header().Set("Allow", "GET, PUT, DELETE, HEAD")
