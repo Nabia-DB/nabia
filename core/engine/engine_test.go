@@ -30,7 +30,8 @@ func TestFileSavingAndLoading(t *testing.T) {
 		t.Fatalf("failed to create NabiaDB: %s", err) // Unknown error
 	}
 	defer os.Remove(location)
-	if err := nabiaDB.Write("A", *NewNabiaString("Value_A")); err != nil { // Failure when writing a value
+	value_a, _ := NewNabiaRecord("Value_A")
+	if err := nabiaDB.Write("A", value_a); err != nil { // Failure when writing a value
 		t.Errorf("failed to write to NabiaDB: %s", err) // Unknown error
 	}
 	if err := nabiaDB.saveToFile(location); err != nil {
@@ -67,8 +68,7 @@ func TestFileSavingAndLoading(t *testing.T) {
 		t.Fatalf("failed to read from NabiaDB: %s", err) // Unknown error
 	} else {
 		expectedData := []byte("Value_A")
-		expected_content_type := "text/plain; charset=utf-8"
-		if !bytes.Equal(nr.RawData, expectedData) || nr.ContentType != expected_content_type {
+		if !bytes.Equal(nr, expectedData) { //TODO fix this ???
 			t.Errorf("failed to read the correct value from NabiaDB: %s", err)
 		}
 	}
@@ -83,9 +83,8 @@ func TestFileSavingAndLoading(t *testing.T) {
 
 func TestCRUD(t *testing.T) { // Create, Read, Update, Destroy
 
-	var nabia_read NabiaRecord
+	var nabia_read NabiaRecord[string]
 	var expected []byte
-	var expected_content_type ContentType
 	expected_stats := dataActivity{reads: 0, writes: 0, size: 0}
 
 	nabiaDB, err := NewNabiaDB("crud.db")
@@ -99,7 +98,10 @@ func TestCRUD(t *testing.T) { // Create, Read, Update, Destroy
 	}
 	atomic.AddInt64(&expected_stats.reads, 1)
 	//CREATE
-	s := NewNabiaString("Value_A")
+	s, err := NewNabiaRecord("Value_A")
+	if err != nil {
+		t.Errorf("error when creating a record")
+	}
 	nabiaDB.Write("A", *s)
 	atomic.AddInt64(&expected_stats.reads, 1)
 	atomic.AddInt64(&expected_stats.writes, 1)
@@ -115,9 +117,8 @@ func TestCRUD(t *testing.T) { // Create, Read, Update, Destroy
 		t.Errorf("\"Read\" returns an unexpected error:\n%q", err.Error())
 	}
 	expected = []byte("Value_A")
-	expected_content_type = "text/plain; charset=utf-8"
 	for i, e := range nabia_read.RawData {
-		if e != expected[i] || nabia_read.ContentType != expected_content_type {
+		if e != expected[i] {
 			t.Errorf("\"Read\" returns unexpected data or ContentType!\nGot %q, expected %q", nabia_read, expected)
 		}
 	}
@@ -157,7 +158,7 @@ func TestCRUD(t *testing.T) { // Create, Read, Update, Destroy
 	atomic.AddInt64(&expected_stats.reads, 1)
 
 	// Test for unknown ContentType
-	s2 := NewNabiaRecord([]byte("Unknown ContentType Value"), "unknown/type; charset=unknown")
+	s2, err := NewNabiaRecord([]byte("Unknown ContentType Value"))
 	if err := nabiaDB.Write("B", *s2); err != nil {
 		t.Errorf("\"Write\" returns an unexpected error:\n%q", err.Error())
 	}
@@ -165,23 +166,8 @@ func TestCRUD(t *testing.T) { // Create, Read, Update, Destroy
 	atomic.AddInt64(&expected_stats.writes, 1)
 	atomic.AddInt64(&expected_stats.size, 1)
 	nabia_read, err = nabiaDB.Read("B")
-	if nabia_read.ContentType != "unknown/type; charset=unknown" {
-		t.Error("Content type not saving correctly")
-	}
 	if err != nil {
 		t.Errorf("\"Read\" returns an unexpected error:\n%q", err.Error())
-	}
-	atomic.AddInt64(&expected_stats.reads, 1)
-
-	// Test for incorrect ContentType
-	s3 := NewNabiaRecord([]byte("Incorrect ContentType Value"), "QWERTYABCD")
-	incorrect_content_type := nabiaDB.Write("C", *s3)
-	if !strings.Contains(incorrect_content_type.Error(), "Content-Type is not valid") {
-		t.Error("malformed Content-Type should not be allowed")
-	}
-	nabia_read, err = nabiaDB.Read("C")
-	if err == nil {
-		t.Error("malformed Content-Type should not be written to the database")
 	}
 	atomic.AddInt64(&expected_stats.reads, 1)
 
@@ -235,7 +221,10 @@ func TestConcurrency(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			key := fmt.Sprintf("Key_%d", i)
-			value := NewNabiaRecord([]byte(fmt.Sprintf("Value_%d", i)), "text/plain; charset=utf-8")
+			value, err := NewNabiaRecord([]byte(fmt.Sprintf("Value_%d", i)))
+			if err != nil {
+				t.Errorf("error creating a random record")
+			}
 			operation := rand.Intn(3)
 			switch operation {
 			case 0:
