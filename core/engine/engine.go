@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"bufio"
+	"encoding/gob"
 	"fmt"
 	"os"
 	"sync"
@@ -11,6 +13,7 @@ import (
 type NabiaRecord[T any] struct {
 	RawData T
 }
+
 type dataActivity struct {
 	reads  int64
 	writes int64
@@ -179,80 +182,71 @@ func (ns *NabiaDB) Stop() {
 }
 
 // TODO: Saving and loading must be reimplemented because of generics
-
 func (ns *NabiaDB) saveToFile(filename string) error {
-	return nil
+	// Open or create the file for writing. os.Create truncates the file if it already exists.
+	file, err := os.Create(filename)
+	if err != nil {
+		return err // Return the error if file creation fails
+	}
+	defer file.Close() // Ensure the file is closed after writing is complete
+
+	// Use a buffered writer for efficient file writing
+	writer := bufio.NewWriter(file)
+	defer writer.Flush() // Ensure buffered data is flushed to file
+
+	// Create a new gob encoder that writes to the buffered writer
+	encoder := gob.NewEncoder(writer)
+
+	// Prepare a regular map to hold the data from sync.Map
+	// This is necessary because gob cannot directly encode/decode sync.Map
+	data := make(map[string]NabiaRecord[interface{}])
+
+	// Copy data from sync.Map to the regular map
+	ns.Records.Range(func(key, value interface{}) bool {
+		k, okKey := key.(K)                            // Ensure the key is of type K
+		nabiaRecord, okValue := value.(NabiaRecord[V]) // Ensure the value is of type NabiaRecord[V]
+		if okKey && okValue {
+			data[k] = nabiaRecord
+		}
+		return true // Continue iterating over all entries in the sync.Map
+	})
+
+	// Encode the regular map into the file
+	err = encoder.Encode(data)
+	if err != nil {
+		return err // Return the error if encoding fails
+	}
+
+	ns.internals.metrics.timestamps.lastSave = time.Now()
+	return nil // Return nil if the function completes successfully
 }
 
 func loadFromFile(filename string) (*NabiaDB, error) {
-	return nil, nil
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	// Use a buffered reader for better performance
+	reader := bufio.NewReader(file)
+	decoder := gob.NewDecoder(reader)
+
+	// Decode the map
+	data := make(map[K]NabiaRecord[V])
+	if err := decoder.Decode(&data); err != nil {
+		return nil, err
+	}
+
+	// Convert the regular map back to a sync.Map
+	ndb := newEmptyDB()
+	ndb.internals.location = filename
+	for key, value := range data {
+		ndb.Write(fmt.Sprintf("%v", key), value)
+		ndb.internals.metrics.dataActivity.size++
+	}
+
+	ndb.internals.metrics.timestamps.lastLoad = time.Now()
+
+	return ndb, nil
 }
-
-// func (ns *NabiaDB) saveToFile(filename string) error {
-// 	// Open or create the file for writing. os.Create truncates the file if it already exists.
-// 	file, err := os.Create(filename)
-// 	if err != nil {
-// 		return err // Return the error if file creation fails
-// 	}
-// 	defer file.Close() // Ensure the file is closed after writing is complete
-
-// 	// Use a buffered writer for efficient file writing
-// 	writer := bufio.NewWriter(file)
-// 	defer writer.Flush() // Ensure buffered data is flushed to file
-
-// 	// Create a new gob encoder that writes to the buffered writer
-// 	encoder := gob.NewEncoder(writer)
-
-// 	// Prepare a regular map to hold the data from sync.Map
-// 	// This is necessary because gob cannot directly encode/decode sync.Map
-// 	data := make(map[string]NabiaRecord[T])
-
-// 	// Copy data from sync.Map to the regular map
-// 	ns.Records.Range(func(key, value interface{}) bool {
-// 		strKey, okKey := key.(string)               // Ensure the key is of type string
-// 		nabiaRecord, okValue := value.(NabiaRecord) // Ensure the value is of type NabiaRecord
-// 		if okKey && okValue {
-// 			data[strKey] = nabiaRecord
-// 		}
-// 		return true // Continue iterating over all entries in the sync.Map
-// 	})
-
-// 	// Encode the regular map into the file
-// 	err = encoder.Encode(data)
-// 	if err != nil {
-// 		return err // Return the error if encoding fails
-// 	}
-
-// 	ns.internals.metrics.timestamps.lastSave = time.Now()
-// 	return nil // Return nil if the function completes successfully
-// }
-
-// func loadFromFile(filename string) (*NabiaDB, error) {
-// 	file, err := os.Open(filename)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	defer file.Close()
-
-// 	// Use a buffered reader for better performance
-// 	reader := bufio.NewReader(file)
-// 	decoder := gob.NewDecoder(reader)
-
-// 	// Decode the map
-// 	data := make(map[string]NabiaRecord)
-// 	if err := decoder.Decode(&data); err != nil {
-// 		return nil, err
-// 	}
-
-// 	// Convert the regular map back to a sync.Map
-// 	ndb := newEmptyDB()
-// 	ndb.internals.location = filename
-// 	for key, value := range data {
-// 		ndb.Write(key, value)
-// 		ndb.internals.metrics.dataActivity.size++
-// 	}
-
-// 	ndb.internals.metrics.timestamps.lastLoad = time.Now()
-
-// 	return ndb, err
-// }
