@@ -30,8 +30,7 @@ func TestFileSavingAndLoading(t *testing.T) {
 		t.Fatalf("failed to create NabiaDB: %s", err) // Unknown error
 	}
 	defer os.Remove(location)
-	value_a, _ := NewNabiaRecord("Value_A")
-	if err := nabiaDB.Write("A", value_a); err != nil { // Failure when writing a value
+	if err := nabiaDB.Write("A", []byte("Value_A")); err != nil { // Failure when writing a value
 		t.Errorf("failed to write to NabiaDB: %s", err) // Unknown error
 	}
 	if err := nabiaDB.saveToFile(location); err != nil {
@@ -83,7 +82,7 @@ func TestFileSavingAndLoading(t *testing.T) {
 
 func TestCRUD(t *testing.T) { // Create, Read, Update, Destroy
 
-	var nabia_read NabiaRecord[string]
+	var nabia_read []byte
 	var expected []byte
 	expected_stats := dataActivity{reads: 0, writes: 0, size: 0}
 
@@ -98,11 +97,7 @@ func TestCRUD(t *testing.T) { // Create, Read, Update, Destroy
 	}
 	atomic.AddInt64(&expected_stats.reads, 1)
 	//CREATE
-	s, err := NewNabiaRecord("Value_A")
-	if err != nil {
-		t.Errorf("error when creating a record")
-	}
-	nabiaDB.Write("A", *s)
+	nabiaDB.Write("A", []byte("Value_A"))
 	atomic.AddInt64(&expected_stats.reads, 1)
 	atomic.AddInt64(&expected_stats.writes, 1)
 	atomic.AddInt64(&expected_stats.size, 1)
@@ -117,14 +112,15 @@ func TestCRUD(t *testing.T) { // Create, Read, Update, Destroy
 		t.Errorf("\"Read\" returns an unexpected error:\n%q", err.Error())
 	}
 	expected = []byte("Value_A")
-	for i, e := range nabia_read.RawData {
-		if e != expected[i] {
-			t.Errorf("\"Read\" returns unexpected data or ContentType!\nGot %q, expected %q", nabia_read, expected)
-		}
+	if !bytes.Equal(expected, nabia_read) {
+		t.Errorf("\"Read\" returns unexpected data!\nGot %q, expected %q", nabia_read, expected)
 	}
 	//UPDATE
-	s1 := NewNabiaRecord([]byte("Modified value"), "application/json; charset=UTF-8")
-	nabiaDB.Write("A", *s1)
+	s1 := []byte("Modified value")
+	if err != nil {
+		t.Errorf(("Failed to create NabiaRecord: %s"), err)
+	}
+	nabiaDB.Write("A", s1)
 	atomic.AddInt64(&expected_stats.reads, 1)
 	atomic.AddInt64(&expected_stats.writes, 1)
 	if !nabiaDB.Exists("A") {
@@ -137,18 +133,13 @@ func TestCRUD(t *testing.T) { // Create, Read, Update, Destroy
 	}
 	atomic.AddInt64(&expected_stats.reads, 1)
 	expected = []byte("Modified value")
-	expected_content_type = "application/json; charset=UTF-8"
-	for i, e := range nabia_read.RawData {
-		if e != expected[i] || nabia_read.ContentType != expected_content_type {
-			t.Errorf("\"Write\" on an existing item saves unexpected data or ContentType!\nGot %q, expected %q", nabia_read, expected)
-		}
-	}
+	bytes.Equal(expected, nabia_read)
 	//DESTROY
 	if !nabiaDB.Exists("A") {
 		t.Error("Can't destroy item because it doesn't exist!")
 	}
 	atomic.AddInt64(&expected_stats.reads, 1)
-	nabiaDB.Destroy("A")
+	nabiaDB.Delete("A")
 	atomic.AddInt64(&expected_stats.reads, 1)
 	atomic.AddInt64(&expected_stats.writes, 1)
 	atomic.AddInt64(&expected_stats.size, -1)
@@ -157,22 +148,8 @@ func TestCRUD(t *testing.T) { // Create, Read, Update, Destroy
 	}
 	atomic.AddInt64(&expected_stats.reads, 1)
 
-	// Test for unknown ContentType
-	s2, err := NewNabiaRecord([]byte("Unknown ContentType Value"))
-	if err := nabiaDB.Write("B", *s2); err != nil {
-		t.Errorf("\"Write\" returns an unexpected error:\n%q", err.Error())
-	}
-	atomic.AddInt64(&expected_stats.reads, 1)
-	atomic.AddInt64(&expected_stats.writes, 1)
-	atomic.AddInt64(&expected_stats.size, 1)
-	nabia_read, err = nabiaDB.Read("B")
-	if err != nil {
-		t.Errorf("\"Read\" returns an unexpected error:\n%q", err.Error())
-	}
-	atomic.AddInt64(&expected_stats.reads, 1)
-
 	// Test for non-existent item
-	nabiaDB.Destroy("C")
+	nabiaDB.Delete("C") // This should never fail regardless of whether the key exists
 	atomic.AddInt64(&expected_stats.reads, 1)
 	atomic.AddInt64(&expected_stats.writes, 1)
 	if nabiaDB.Exists("C") {
@@ -181,29 +158,21 @@ func TestCRUD(t *testing.T) { // Create, Read, Update, Destroy
 	atomic.AddInt64(&expected_stats.reads, 1)
 
 	// Test for incorrect key
-	incorrect_key := nabiaDB.Write("", *s) // This should not be allowed
+	incorrect_key := nabiaDB.Write("", []byte("This should fail")) // This should not be allowed
 	if !strings.Contains(incorrect_key.Error(), "key cannot be empty") {
 		t.Error("Empty key should not be allowed")
 	}
 
 	// Test for incorrect values
-	incorrect_value1 := nabiaDB.Write("/A", NabiaRecord{}) // This should not be allowed
-	if !strings.Contains(incorrect_value1.Error(), "value cannot be nil") {
+	incorrect_value := nabiaDB.Write("/A", []byte{}) // This should not be allowed
+	if incorrect_value == nil || !strings.Contains(incorrect_value.Error(), "value cannot be nil") {
 		t.Error("Empty NabiaRecord should not be allowed")
 	}
-	incorrect_value2 := nabiaDB.Write("/A", NabiaRecord{nil, "application/json; charset=UTF-8"}) // This should not be allowed
-	if !strings.Contains(incorrect_value2.Error(), "value cannot be nil") {
-		t.Error("nil NabiaRecord RawData should not be allowed")
-	}
-	incorrect_value3 := nabiaDB.Write("/A", NabiaRecord{[]byte("Value_A"), ""}) // This should not be allowed
-	if !strings.Contains(incorrect_value3.Error(), "Content-Type cannot be empty") {
-		t.Error("Empty NabiaRecord ContentType should not be allowed")
-	}
+
+	// Test the metrics
 	if !reflect.DeepEqual(nabiaDB.internals.metrics.dataActivity, expected_stats) {
 		t.Errorf("Stats are not as expected.\nExpected: %+v\nGot: %+v", expected_stats, nabiaDB.internals.metrics.dataActivity)
 	}
-
-	// TODO move this to a separate function
 
 }
 
@@ -221,62 +190,59 @@ func TestConcurrency(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			key := fmt.Sprintf("Key_%d", i)
-			value, err := NewNabiaRecord([]byte(fmt.Sprintf("Value_%d", i)))
-			if err != nil {
-				t.Errorf("error creating a random record")
-			}
+			value := []byte(fmt.Sprintf("Value_%d", i))
 			operation := rand.Intn(3)
 			switch operation {
 			case 0:
 				// Destroy before writing
-				nabiaDB.Destroy(key)
+				nabiaDB.Delete(key)
 				atomic.AddInt64(&expected_stats.reads, 1)
 				atomic.AddInt64(&expected_stats.writes, 1)
 				if nabiaDB.Exists(key) {
 					t.Errorf("Destroy operation failed before writing for key: %s", key)
 				}
 				atomic.AddInt64(&expected_stats.reads, 1)
-				nabiaDB.Write(key, *value)
+				nabiaDB.Write(key, value)
 				atomic.AddInt64(&expected_stats.reads, 1)
 				atomic.AddInt64(&expected_stats.size, 1)
 				atomic.AddInt64(&expected_stats.writes, 1)
 			case 1:
-				// Destroy after writing and verifying the value
-				nabiaDB.Write(key, *value)
+				// Delete after writing and verifying the value
+				nabiaDB.Write(key, value)
 				atomic.AddInt64(&expected_stats.reads, 1)
 				atomic.AddInt64(&expected_stats.writes, 1)
 				atomic.AddInt64(&expected_stats.size, 1)
 				readValue, err := nabiaDB.Read(key)
-				if err != nil || !bytes.Equal(readValue.RawData, value.RawData) || readValue.ContentType != value.ContentType {
+				if err != nil || !bytes.Equal(readValue, value) {
 					t.Errorf("Write or Read operation failed for key: %s", key)
 				}
 				atomic.AddInt64(&expected_stats.reads, 1)
-				nabiaDB.Destroy(key)
+				nabiaDB.Delete(key)
 				atomic.AddInt64(&expected_stats.reads, 1)
 				atomic.AddInt64(&expected_stats.writes, 1)
 				atomic.AddInt64(&expected_stats.size, -1)
 				if nabiaDB.Exists(key) {
-					t.Errorf("Destroy operation failed after writing for key: %s", key)
+					t.Errorf("Delete operation failed after writing for key: %s", key)
 				}
 				atomic.AddInt64(&expected_stats.reads, 1)
 			case 2:
 				// Overwrite and check value again after checking value with first write
-				nabiaDB.Write(key, *value) // first write
+				nabiaDB.Write(key, value) // first write
 				atomic.AddInt64(&expected_stats.reads, 1)
 				atomic.AddInt64(&expected_stats.writes, 1)
 				atomic.AddInt64(&expected_stats.size, 1)
 				readValue, err := nabiaDB.Read(key)
 				atomic.AddInt64(&expected_stats.reads, 1)
-				if err != nil || !bytes.Equal(readValue.RawData, value.RawData) || readValue.ContentType != value.ContentType {
+				if err != nil || !bytes.Equal(readValue, value) {
 					t.Errorf("First Write or Read operation failed for key: %s", key)
 				}
-				value2 := NewNabiaRecord([]byte(fmt.Sprintf("New_Value_%d", i)), "application/json; charset=UTF-8")
-				nabiaDB.Write(key, *value2) // overwrite
+				value2 := []byte(fmt.Sprintf("New_Value_%d", i))
+				nabiaDB.Write(key, value2) // overwrite
 				atomic.AddInt64(&expected_stats.reads, 1)
 				atomic.AddInt64(&expected_stats.writes, 1)
 				readValue2, err := nabiaDB.Read(key)
 				atomic.AddInt64(&expected_stats.reads, 1)
-				if err != nil || !bytes.Equal(readValue2.RawData, value2.RawData) || readValue2.ContentType != value2.ContentType {
+				if err != nil || !bytes.Equal(readValue2, value2) {
 					t.Errorf("Second Write or Read operation failed for key: %s", key)
 				}
 			}
