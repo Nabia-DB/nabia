@@ -81,9 +81,27 @@ func convertToByteSlice(nsr *nabiaServerRecord) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// Write is a wrapper for database write. It will always overwrites the data
 func (h *NabiaHTTP) Write(key string, nsr nabiaServerRecord) {
-	record := convertToByteSlice(&nsr)
-	h.db.Write(key, record)
+	if record, err := convertToByteSlice(&nsr); err != nil {
+		log.Println("Error: " + err.Error())
+	} else {
+		h.db.Write(key, record)
+	}
+}
+
+// Read is a wrapper for database read. It will always return a NabiaServerRecord and an error
+func (h *NabiaHTTP) Read(key string) (nabiaServerRecord, error) {
+	if record, err := h.db.Read(key); err != nil {
+		return nabiaServerRecord{}, err
+	} else {
+		return convertToNabiaServerRecord(record)
+	}
+}
+
+// Wrapper for engine Delete
+func (h *NabiaHTTP) Delete(key string) {
+	h.db.Delete(key)
 }
 
 func NewNabiaHttp(ns *engine.NabiaDB) *NabiaHTTP {
@@ -108,7 +126,20 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET": // TODO tests
 		// Only Read
-		// TODO: Read data from DB as NabiaRecord, convert to NabiaServerRecord, then extract data and content type
+		nsr, error := h.Read(key)
+		if error != nil {
+			log.Default().Println("Error: " + error.Error())
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		data, contentType, error := extractDataAndContentType(&nsr)
+		response = data
+		w.Header().Set("Content-Type", contentType)
+		if error != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
 	case "HEAD": // TODO tests
 		w.Header().Del("Content-Type")
 		// Only check if exists
@@ -128,10 +159,14 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// TODO: Read body and content type, create NSR, then convert to NR and write to DB, but only if it doesn't already exist
 			if h.db.Exists(key) {
 				w.WriteHeader(http.StatusConflict)
-				// TODO elaborate
 			} else {
-				nsr := newNabiaServerRecord(body, r.Header.Get("Content-Type"))
-				// TODO continue
+				nsr, err := newNabiaServerRecord(body, r.Header.Get("Content-Type"))
+				if err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+				} else {
+					h.Write(key, nsr)
+					w.WriteHeader(http.StatusCreated)
+				}
 			}
 		}
 	case "PUT":
@@ -141,7 +176,13 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			log.Println("Error: " + err.Error())
 			w.WriteHeader(http.StatusInternalServerError)
 		} else {
-			// TODO similar story to POST, but always succeeds, overwriting where necessary
+			nsr, err := newNabiaServerRecord(body, r.Header.Get("Content-Type"))
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+			} else {
+				h.Write(key, nsr)
+				w.WriteHeader(http.StatusOK)
+			}
 		}
 	case "DELETE": // TODO tests
 		// Only Delete

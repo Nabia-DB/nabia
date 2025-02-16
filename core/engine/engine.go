@@ -141,7 +141,7 @@ func (ns *NabiaDB) Read(key string) ([]byte, error) {
 		if record, ok := value.([]byte); ok {
 			return record, nil
 		}
-		panic("value is not a []byte; this should never happen")
+		panic("value is not a []byte; this should never happen, something has gone very wrong")
 	}
 	return nil, fmt.Errorf("key %q doesn't exist", key)
 }
