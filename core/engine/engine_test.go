@@ -58,20 +58,20 @@ func TestFileSavingAndLoading(t *testing.T) {
 	if err := nabiaDB.saveToFile(location); err != nil { // Attempting to save after deletion
 		t.Fatalf("failed to save NabiaDB to file: %s", err)
 	}
-	nabiaDB, err = loadFromFile(location) // Attempting to load the database once again
+	nabiaDB_loaded, err := loadFromFile(location) // Attempting to load the database once again
 	if err != nil {
 		t.Fatalf("failed to load NabiaDB from file: %s", err) // Unknown error
 	}
-	nr, err := nabiaDB.Read("A") // Attempting to read the value saved earlier
+	nr, err := nabiaDB_loaded.Read("A") // Attempting to read the value saved earlier
 	if err != nil {
 		t.Fatalf("failed to read from NabiaDB: %s", err) // Unknown error
 	} else {
 		expectedData := []byte("Value_A")
-		if !bytes.Equal(nr, expectedData) { //TODO fix this ???
+		if !bytes.Equal(nr, expectedData) {
 			t.Errorf("failed to read the correct value from NabiaDB: %s", err)
 		}
 	}
-	nr, err = nabiaDB.Read("B")
+	_, err = nabiaDB_loaded.Read("B")
 	if err == nil {
 		t.Error("should not succeed when attempting to read a non-existent key")
 	}

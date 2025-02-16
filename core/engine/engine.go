@@ -12,7 +12,7 @@ import (
 )
 
 type NabiaRecord struct {
-	RawData []byte // The string is always the key regardless of data type
+	RawData []byte
 }
 
 type dataActivity struct {
@@ -99,9 +99,9 @@ func newEmptyDB() *NabiaDB {
 func NewNabiaDB(location string) (*NabiaDB, error) {
 	ndb := newEmptyDB()
 	ndb.internals.location = location
-	//if err := ndb.saveToFile(location); err != nil {
-	//	return nil, err
-	//}
+	if err := ndb.saveToFile(location); err != nil {
+		return nil, err
+	}
 	return ndb, nil
 }
 
@@ -188,7 +188,7 @@ func (ns *NabiaDB) Stop() {
 	// TODO emit a shutdown signal
 }
 
-// TODO: Saving and loading must be reimplemented because of generics
+// TODO: Saving and loading must be reimplemented
 func (ns *NabiaDB) saveToFile(filename string) error {
 	// Open or create the file for writing. os.Create truncates the file if it already exists.
 	file, err := os.Create(filename)
@@ -208,7 +208,15 @@ func (ns *NabiaDB) saveToFile(filename string) error {
 	// This is necessary because gob cannot directly encode/decode sync.Map
 	data := make(map[string]NabiaRecord) // The string is always the key regardless of data type
 
-	// TODO: Copy data from sync.Map to the regular map
+	// Copy data from sync.Map to the regular map
+	ns.records.Range(func(key, value interface{}) bool {
+		if k, ok := key.(string); ok {
+			if v, ok := value.([]byte); ok {
+				data[k] = NabiaRecord{RawData: v}
+			}
+		}
+		return true
+	})
 
 	// Encode the regular map into the file
 	err = encoder.Encode(data)

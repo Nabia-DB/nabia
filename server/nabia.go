@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"time"
@@ -33,16 +36,54 @@ func extractDataAndContentType(record *nabiaServerRecord) ([]byte, string, error
 	return record.GetRawData(), record.GetContentType(), nil
 }
 
-func newNabiaServerRecord(data []byte, ct string) (*engine.NabiaRecord[nabiaServerRecord], error) {
+func newNabiaServerRecord(data []byte, ct string) (nabiaServerRecord, error) {
+
 	nsr := nabiaServerRecord{
 		data:        data,
 		contentType: ct,
 	}
-	nr, err := engine.NewNabiaRecord(nsr)
-	if err != nil {
-		return nil, err
+
+	return nsr, nil
+}
+
+func convertToNabiaServerRecord(record []byte) (nabiaServerRecord, error) {
+	buf := bytes.NewReader(record)
+	var dataLen uint32
+	if err := binary.Read(buf, binary.LittleEndian, &dataLen); err != nil {
+		return nabiaServerRecord{}, err
 	}
-	return nr, nil
+	data := make([]byte, dataLen)
+	if _, err := buf.Read(data); err != nil {
+		return nabiaServerRecord{}, err
+	}
+	contentType, err := io.ReadAll(buf)
+	if err != nil {
+		return nabiaServerRecord{}, err
+	}
+	return nabiaServerRecord{
+		data:        data,
+		contentType: string(contentType),
+	}, nil
+}
+
+func convertToByteSlice(nsr *nabiaServerRecord) ([]byte, error) {
+	if len(nsr.data) > int(math.MaxUint32) {
+		// TODO test opportunity
+		return nil, fmt.Errorf("data is too large; its length must be less than %d", math.MaxUint32)
+	}
+
+	var buf bytes.Buffer
+
+	binary.Write(&buf, binary.LittleEndian, uint32(len(nsr.data)))
+	buf.Write(nsr.data)
+	buf.WriteString(nsr.contentType)
+
+	return buf.Bytes(), nil
+}
+
+func (h *NabiaHTTP) Write(key string, nsr nabiaServerRecord) {
+	record := convertToByteSlice(&nsr)
+	h.db.Write(key, record)
 }
 
 func NewNabiaHttp(ns *engine.NabiaDB) *NabiaHTTP {
@@ -67,22 +108,7 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET": // TODO tests
 		// Only Read
-		value, err := h.db.Read(key)
-		if err != nil {
-			log.Printf("Error: %s", err.Error())
-			w.WriteHeader(http.StatusNotFound)
-		} else {
-			nsr := value.(engine.NabiaRecord[nabiaServerRecord])
-			data, ct, err := extractDataAndContentType(&nsr.RawData)
-			if err != nil {
-				log.Printf("Error: %s", err.Error())
-				w.WriteHeader(http.StatusInternalServerError)
-			} else {
-				log.Printf("Info: Serving data from key %q", key)
-				w.Header().Set("Content-Type", ct)
-				response = data
-			}
-		}
+		// TODO: Read data from DB as NabiaRecord, convert to NabiaServerRecord, then extract data and content type
 	case "HEAD": // TODO tests
 		w.Header().Del("Content-Type")
 		// Only check if exists
@@ -99,21 +125,13 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			log.Println("Error: " + err.Error())
 			w.WriteHeader(http.StatusInternalServerError)
 		} else {
+			// TODO: Read body and content type, create NSR, then convert to NR and write to DB, but only if it doesn't already exist
 			if h.db.Exists(key) {
 				w.WriteHeader(http.StatusConflict)
+				// TODO elaborate
 			} else {
-				ct := r.Header.Get("Content-Type")
-				if ct == "" {
-					ct = "application/octet-stream"
-				} // TODO Content-Type validation needs more checks
-				record, err := newNabiaServerRecord(body, ct)
-				if err != nil {
-					fmt.Printf("Error: %s", err)
-					w.WriteHeader(http.StatusInternalServerError)
-				} else {
-					h.db.Write(key, *record)
-					w.WriteHeader(http.StatusCreated)
-				}
+				nsr := newNabiaServerRecord(body, r.Header.Get("Content-Type"))
+				// TODO continue
 			}
 		}
 	case "PUT":
@@ -123,28 +141,12 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			log.Println("Error: " + err.Error())
 			w.WriteHeader(http.StatusInternalServerError)
 		} else {
-			ct := r.Header.Get("Content-Type")
-			if ct == "" {
-				ct = "application/octet-stream" // Set generic Content-Type if not provided by the client
-			}
-			existed := h.db.Exists(key)
-			record, err := newNabiaServerRecord(body, ct)
-			if err != nil {
-				fmt.Printf("Error: %s", err)
-				w.WriteHeader(http.StatusInternalServerError)
-			} else {
-				h.db.Write(key, *record)
-				if existed {
-					w.WriteHeader(http.StatusOK)
-				} else {
-					w.WriteHeader(http.StatusCreated)
-				}
-			}
+			// TODO similar story to POST, but always succeeds, overwriting where necessary
 		}
 	case "DELETE": // TODO tests
-		// Only Destroy
+		// Only Delete
 		if h.db.Exists(key) {
-			engine.Delete(h.db, key)
+			h.db.Delete(key)
 			w.WriteHeader(http.StatusOK)
 		} else {
 			w.WriteHeader(http.StatusNotFound)
