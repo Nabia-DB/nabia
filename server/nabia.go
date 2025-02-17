@@ -19,54 +19,55 @@ type NabiaHTTP struct {
 	db *engine.NabiaDB
 }
 
+type byteSlice []byte
+
 type nabiaServerRecord struct {
-	data        []byte
+	data        byteSlice
 	contentType string
 }
 
-func (nsr *nabiaServerRecord) GetRawData() []byte {
+func (nsr nabiaServerRecord) GetRawData() byteSlice {
 	return nsr.data
 }
 
-func (nsr *nabiaServerRecord) GetContentType() string {
+func (nsr nabiaServerRecord) GetContentType() string {
 	return nsr.contentType
 }
 
-func extractDataAndContentType(record *nabiaServerRecord) ([]byte, string, error) {
+func extractDataAndContentType(record *nabiaServerRecord) (byteSlice, string, error) {
 	return record.GetRawData(), record.GetContentType(), nil
 }
 
-func newNabiaServerRecord(data []byte, ct string) (nabiaServerRecord, error) {
-
+func newNabiaServerRecord(data byteSlice, ct string) (*nabiaServerRecord, error) {
 	nsr := nabiaServerRecord{
 		data:        data,
 		contentType: ct,
 	}
 
-	return nsr, nil
+	return &nsr, nil
 }
 
-func convertToNabiaServerRecord(record []byte) (nabiaServerRecord, error) {
-	buf := bytes.NewReader(record)
+func (bs byteSlice) deserialize() (*nabiaServerRecord, error) {
 	var dataLen uint32
+	nsr := &nabiaServerRecord{}
+	buf := bytes.NewReader(bs)
 	if err := binary.Read(buf, binary.LittleEndian, &dataLen); err != nil {
-		return nabiaServerRecord{}, err
+		return nsr, err
 	}
-	data := make([]byte, dataLen)
+	data := make(byteSlice, dataLen)
 	if _, err := buf.Read(data); err != nil {
-		return nabiaServerRecord{}, err
+		return nsr, err
 	}
 	contentType, err := io.ReadAll(buf)
 	if err != nil {
-		return nabiaServerRecord{}, err
+		return nsr, err
 	}
-	return nabiaServerRecord{
-		data:        data,
-		contentType: string(contentType),
-	}, nil
+	nsr.data = data
+	nsr.contentType = string(contentType)
+	return nsr, nil
 }
 
-func convertToByteSlice(nsr *nabiaServerRecord) ([]byte, error) {
+func (nsr nabiaServerRecord) serialize() (byteSlice, error) {
 	if len(nsr.data) > int(math.MaxUint32) {
 		// TODO test opportunity
 		return nil, fmt.Errorf("data is too large; its length must be less than %d", math.MaxUint32)
@@ -81,21 +82,25 @@ func convertToByteSlice(nsr *nabiaServerRecord) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Write is a wrapper for database write. It will always overwrites the data
+// Write is a wrapper for database write. It will always overwrite the data
 func (h *NabiaHTTP) Write(key string, nsr nabiaServerRecord) {
-	if record, err := convertToByteSlice(&nsr); err != nil {
+	if record, err := nsr.serialize(); err != nil {
 		log.Println("Error: " + err.Error())
 	} else {
 		h.db.Write(key, record)
 	}
 }
 
-// Read is a wrapper for database read. It will always return a NabiaServerRecord and an error
+// Read is a wrapper for database Read
 func (h *NabiaHTTP) Read(key string) (nabiaServerRecord, error) {
 	if record, err := h.db.Read(key); err != nil {
 		return nabiaServerRecord{}, err
 	} else {
-		return convertToNabiaServerRecord(record)
+		bs, error := byteSlice(record).deserialize()
+		if error != nil {
+			return nabiaServerRecord{}, error
+		}
+		return *bs, nil
 	}
 }
 
@@ -109,10 +114,9 @@ func NewNabiaHttp(ns *engine.NabiaDB) *NabiaHTTP {
 }
 
 // These are the higher-level HTTP API calls exposed via the desired port, which
-// in turn call the CRUD primitives from core.
-
+// in turn call the CRUD primitives from engine.
 func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	var response []byte
+	var response byteSlice
 	key := r.URL.Path
 	clientIP, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -164,7 +168,7 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				if err != nil {
 					w.WriteHeader(http.StatusInternalServerError)
 				} else {
-					h.Write(key, nsr)
+					h.Write(key, *nsr)
 					w.WriteHeader(http.StatusCreated)
 				}
 			}
@@ -180,7 +184,7 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 			} else {
-				h.Write(key, nsr)
+				h.Write(key, *nsr)
 				w.WriteHeader(http.StatusOK)
 			}
 		}

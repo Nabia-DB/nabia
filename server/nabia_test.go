@@ -34,6 +34,55 @@ func cleanup(filename string, t *testing.T) {
 	}
 }
 
+func TestFundamentals(t *testing.T) {
+	nsr, err := newNabiaServerRecord([]byte("test"), "application/octet-stream")
+	if err != nil {
+		t.Errorf("Failed to create NabiaServerRecord: %q", err)
+	}
+	if !bytes.Equal(nsr.GetRawData(), []byte("test")) {
+		t.Errorf("Unexpected data: %q", nsr.GetRawData())
+	}
+	if nsr.GetContentType() != "application/octet-stream" {
+		t.Errorf("Unexpected content type: %q", nsr.GetContentType())
+	}
+}
+
+func TestSerialization(t *testing.T) {
+	nsr, err := newNabiaServerRecord([]byte("test"), "application/octet-stream")
+	if err != nil {
+		t.Errorf("Failed to create NabiaServerRecord: %q", err)
+	}
+	bs, err := nsr.serialize()
+	if err != nil {
+		t.Errorf("Failed to serialize: %q", err)
+	}
+	if !bytes.Equal(bs, []byte{4, 0, 0, 0, // Length of data (4)
+		116, 101, 115, 116, // data ("test")
+		97, 112, 112, 108, 105, 99, 97, 116, 105, 111, 110, 47, 111, 99, 116,
+		101, 116, 45, 115, 116, 114, 101, 97, 109, // Content type ("application/octet-stream")
+	}) {
+		t.Errorf("Unexpected serialized data: %q", bs)
+	}
+}
+
+func testDeserialization(t *testing.T) {
+	var bs byteSlice = []byte{4, 0, 0, 0, // Length of data (4)
+		116, 101, 115, 116, // data ("test")
+		97, 112, 112, 108, 105, 99, 97, 116, 105, 111, 110, 47, 111, 99, 116,
+		101, 116, 45, 115, 116, 114, 101, 97, 109, // Content type ("application/octet-stream")
+	}
+	nsr, err := bs.deserialize()
+	if err != nil {
+		t.Errorf("Failed to deserialize: %q", err)
+	}
+	if !bytes.Equal(nsr.GetRawData(), []byte("test")) {
+		t.Errorf("Unexpected data: %q", nsr.GetRawData())
+	}
+	if nsr.GetContentType() != "application/octet-stream" {
+		t.Errorf("Unexpected content type: %q", nsr.GetContentType())
+	}
+}
+
 func TestHTTP(t *testing.T) { // Tests the implementation of the HTTP API
 	filename := "test.db"
 	cleanup(filename, t)
@@ -57,8 +106,11 @@ func TestHTTP(t *testing.T) { // Tests the implementation of the HTTP API
 		status_code  int    // expected (all methods)
 	}{
 		{"HEAD", "/a1", []byte(nil), "", http.StatusNotFound}, // the DB must be empty on first boot
+		{"HEAD", "/a2", []byte(nil), "", http.StatusNotFound},
 		{"GET", "/a1", []byte(nil), "", http.StatusNotFound},
-		{"POST", "/a1", []byte("test"), "application/octet-stream", http.StatusCreated}, // first upload
+		{"POST", "/a1", []byte("test"), "application/octet-stream", http.StatusCreated},  // first upload
+		{"POST", "/a1", []byte("test"), "application/octet-stream", http.StatusConflict}, // second upload, should fail
+		{"POST", "/a2", []byte("test2"), "application/octet-stream", http.StatusCreated}, // Uploading to different key should always work
 		{"HEAD", "/a1", []byte(nil), "", http.StatusOK},
 		{"GET", "/a1", []byte("test"), "application/octet-stream", http.StatusOK},
 		{"PUT", "/a1", []byte("edited test"), "application/octet-stream", http.StatusOK}, // second upload, overwriting first upload
@@ -67,6 +119,7 @@ func TestHTTP(t *testing.T) { // Tests the implementation of the HTTP API
 		{"DELETE", "/a1", []byte(nil), "", http.StatusNotFound},
 		{"HEAD", "/a1", []byte(nil), "", http.StatusNotFound},
 		{"GET", "/a1", []byte(nil), "", http.StatusNotFound},
+		{"GET", "/a2", []byte("test2"), "application/octet-stream", http.StatusOK}, // This one was never deleted, so it should still work
 	}
 
 	for _, row := range table {
