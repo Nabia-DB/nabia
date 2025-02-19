@@ -3,12 +3,15 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"math"
+	"mime"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	engine "github.com/Nabia-DB/nabia/core/engine"
@@ -47,37 +50,72 @@ func newNabiaServerRecord(data byteSlice, ct string) (*nabiaServerRecord, error)
 	return &nsr, nil
 }
 
+func validateContentType(ct string) error {
+	if len(ct) == 0 {
+		return errors.New("Content-Type cannot be empty")
+	}
+	if !strings.Contains(ct, "/") {
+		return errors.New("Content-Type must contain a '/'")
+	}
+	_, _, err := mime.ParseMediaType(ct)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (bs byteSlice) deserialize() (*nabiaServerRecord, error) {
-	var dataLen uint32
+	var version uint8  // Length of the version indicator is one byte
+	var ctLength uint8 // Length of the content type is one byte
+	var contentType string
+	var ctBytes byteSlice
 	nsr := &nabiaServerRecord{}
 	buf := bytes.NewReader(bs)
-	if err := binary.Read(buf, binary.LittleEndian, &dataLen); err != nil {
+	// Read version byte
+	if err := binary.Read(buf, binary.LittleEndian, &version); err != nil { // Read version
 		return nsr, err
 	}
-	data := make(byteSlice, dataLen)
-	if _, err := buf.Read(data); err != nil {
-		return nsr, err
+	if bytes.Equal([]byte{version}, []byte{0}) { // Check version of serialization
+		if err := binary.Read(buf, binary.LittleEndian, &ctLength); err != nil { // Read content-type length
+			return nsr, err
+		}
+		if !bytes.Equal([]byte{ctLength}, []byte{0}) { // Content-Type is not empty
+			ctBytes = make(byteSlice, ctLength)
+			if _, err := buf.Read(ctBytes); err != nil {
+				return nsr, err
+			}
+			contentType = string(ctBytes)
+			if err := validateContentType(contentType); err != nil {
+				return nsr, err
+			}
+			data, err := io.ReadAll(buf)
+			if err != nil {
+				return nsr, err
+			}
+			nsr.data = data
+			nsr.contentType = contentType
+		} else {
+			return nsr, fmt.Errorf("Content-Type cannot be empty (read CT length 0)")
+		}
+	} else {
+		return nsr, fmt.Errorf("unsupported version: %d", version)
 	}
-	contentType, err := io.ReadAll(buf)
-	if err != nil {
-		return nsr, err
-	}
-	nsr.data = data
-	nsr.contentType = string(contentType)
+
 	return nsr, nil
 }
 
 func (nsr nabiaServerRecord) serialize() (byteSlice, error) {
-	if len(nsr.data) > int(math.MaxUint32) {
+	currentVersion := uint8(0)
+	if len(nsr.contentType) > int(math.MaxUint8) {
 		// TODO test opportunity
-		return nil, fmt.Errorf("data is too large; its length must be less than %d", math.MaxUint32)
+		return nil, fmt.Errorf("Content-Type is too large; its length must be less than %d", math.MaxUint8)
 	}
 
 	var buf bytes.Buffer
-
-	binary.Write(&buf, binary.LittleEndian, uint32(len(nsr.data)))
-	buf.Write(nsr.data)
+	binary.Write(&buf, binary.LittleEndian, currentVersion)
+	binary.Write(&buf, binary.LittleEndian, uint8(len(nsr.contentType)))
 	buf.WriteString(nsr.contentType)
+	buf.Write(nsr.data)
 
 	return buf.Bytes(), nil
 }
@@ -116,7 +154,7 @@ func NewNabiaHttp(ns *engine.NabiaDB) *NabiaHTTP {
 // These are the higher-level HTTP API calls exposed via the desired port, which
 // in turn call the CRUD primitives from engine.
 func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	var response byteSlice
+	var response []byte
 	key := r.URL.Path
 	clientIP, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -159,35 +197,52 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Println("Error: " + err.Error())
 			w.WriteHeader(http.StatusInternalServerError)
-		} else {
-			// TODO: Read body and content type, create NSR, then convert to NR and write to DB, but only if it doesn't already exist
-			if h.db.Exists(key) {
-				w.WriteHeader(http.StatusConflict)
-			} else {
-				nsr, err := newNabiaServerRecord(body, r.Header.Get("Content-Type"))
-				if err != nil {
-					w.WriteHeader(http.StatusInternalServerError)
-				} else {
-					h.Write(key, *nsr)
-					w.WriteHeader(http.StatusCreated)
-				}
-			}
+			break
 		}
+		if h.db.Exists(key) {
+			w.WriteHeader(http.StatusConflict)
+			break
+		}
+		if len(body) == 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			break
+		}
+		ct := r.Header.Get("Content-Type")
+		if err := validateContentType(ct); err != nil { // Content-Type must be valid
+			w.WriteHeader(http.StatusBadRequest)
+			break
+		}
+		nsr, err := newNabiaServerRecord(body, ct)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			break
+		}
+		h.Write(key, *nsr)
+		w.WriteHeader(http.StatusCreated)
 	case "PUT":
 		// Overwrites if exists, otherwise creates
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			log.Println("Error: " + err.Error())
 			w.WriteHeader(http.StatusInternalServerError)
-		} else {
-			nsr, err := newNabiaServerRecord(body, r.Header.Get("Content-Type"))
-			if err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-			} else {
-				h.Write(key, *nsr)
-				w.WriteHeader(http.StatusOK)
-			}
+			break
 		}
+		if len(body) == 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			break
+		}
+		ct := r.Header.Get("Content-Type")
+		if err := validateContentType(ct); err != nil { // Content-Type must be valid
+			w.WriteHeader(http.StatusBadRequest)
+			break
+		}
+		nsr, err := newNabiaServerRecord(body, ct)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			break
+		}
+		h.Write(key, *nsr)
+		w.WriteHeader(http.StatusOK)
 	case "DELETE": // TODO tests
 		// Only Delete
 		if h.db.Exists(key) {
@@ -195,7 +250,6 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		} else {
 			w.WriteHeader(http.StatusNotFound)
-			// TODO DRY
 		}
 	case "OPTIONS":
 		// TODO tests

@@ -37,49 +37,76 @@ func cleanup(filename string, t *testing.T) {
 func TestFundamentals(t *testing.T) {
 	nsr, err := newNabiaServerRecord([]byte("test"), "application/octet-stream")
 	if err != nil {
-		t.Errorf("Failed to create NabiaServerRecord: %q", err)
+		t.Fatalf("Failed to create NabiaServerRecord: %q", err)
 	}
 	if !bytes.Equal(nsr.GetRawData(), []byte("test")) {
-		t.Errorf("Unexpected data: %q", nsr.GetRawData())
+		t.Fatalf("Unexpected data: %q", nsr.GetRawData())
 	}
 	if nsr.GetContentType() != "application/octet-stream" {
-		t.Errorf("Unexpected content type: %q", nsr.GetContentType())
+		t.Fatalf("Unexpected content type: %q", nsr.GetContentType())
 	}
 }
 
 func TestSerialization(t *testing.T) {
 	nsr, err := newNabiaServerRecord([]byte("test"), "application/octet-stream")
 	if err != nil {
-		t.Errorf("Failed to create NabiaServerRecord: %q", err)
+		t.Fatalf("Failed to create NabiaServerRecord: %q", err)
 	}
 	bs, err := nsr.serialize()
 	if err != nil {
-		t.Errorf("Failed to serialize: %q", err)
+		t.Fatalf("Failed to serialize: %q", err)
 	}
-	if !bytes.Equal(bs, []byte{4, 0, 0, 0, // Length of data (4)
-		116, 101, 115, 116, // data ("test")
+	if !bytes.Equal(bs, []byte{0, // version
+		24, // Length of Content-Type
 		97, 112, 112, 108, 105, 99, 97, 116, 105, 111, 110, 47, 111, 99, 116,
 		101, 116, 45, 115, 116, 114, 101, 97, 109, // Content type ("application/octet-stream")
+		116, 101, 115, 116, // data ("test")
 	}) {
-		t.Errorf("Unexpected serialized data: %q", bs)
+		t.Fatalf("Unexpected serialized data: %q", bs)
 	}
 }
 
-func testDeserialization(t *testing.T) {
-	var bs byteSlice = []byte{4, 0, 0, 0, // Length of data (4)
-		116, 101, 115, 116, // data ("test")
+func TestDeserialization(t *testing.T) {
+	var bs byteSlice = []byte{0, // version
+		24, // Length of Content-Type
 		97, 112, 112, 108, 105, 99, 97, 116, 105, 111, 110, 47, 111, 99, 116,
 		101, 116, 45, 115, 116, 114, 101, 97, 109, // Content type ("application/octet-stream")
+		116, 101, 115, 116, // data ("test")
 	}
 	nsr, err := bs.deserialize()
 	if err != nil {
-		t.Errorf("Failed to deserialize: %q", err)
+		t.Fatalf("Failed to deserialize: %q", err)
 	}
 	if !bytes.Equal(nsr.GetRawData(), []byte("test")) {
-		t.Errorf("Unexpected data: %q", nsr.GetRawData())
+		t.Fatalf("Unexpected data: %q", nsr.GetRawData())
 	}
 	if nsr.GetContentType() != "application/octet-stream" {
-		t.Errorf("Unexpected content type: %q", nsr.GetContentType())
+		t.Fatalf("Unexpected content type: %q", nsr.GetContentType())
+	}
+}
+
+func TestContentTypeValidation(t *testing.T) {
+	table := []struct {
+		ct   string
+		pass bool
+	}{
+		{"application/octet-stream", true},
+		{"application/octet-stream; charset=utf-8", true},
+		{"application/octet-stream; charset=utf-8; boundary=abcdef", true},
+		{"application/octet-stream; charset=utf-8; boundary=abcdef; q=0.5", true},
+		{"", false},
+		{"a", false},
+		{" a ", false},
+		{"a / a", false},
+	}
+	for _, row := range table {
+		err := validateContentType(row.ct)
+		if row.pass && err != nil {
+			t.Errorf("Unexpected error with Content-Type %q: %q", row.ct, err)
+		}
+		if !row.pass && err == nil {
+			t.Errorf("Expected error on Content-Type %q", row.ct)
+		}
 	}
 }
 
@@ -101,25 +128,32 @@ func TestHTTP(t *testing.T) { // Tests the implementation of the HTTP API
 	table := []struct {
 		verb         string
 		key          string
-		value        []byte // expected (GET)
-		content_type string // expected (GET)
+		value        []byte // expected (GET only)
+		content_type string // expected (GET only)
 		status_code  int    // expected (all methods)
 	}{
-		{"HEAD", "/a1", []byte(nil), "", http.StatusNotFound}, // the DB must be empty on first boot
-		{"HEAD", "/a2", []byte(nil), "", http.StatusNotFound},
-		{"GET", "/a1", []byte(nil), "", http.StatusNotFound},
-		{"POST", "/a1", []byte("test"), "application/octet-stream", http.StatusCreated},  // first upload
-		{"POST", "/a1", []byte("test"), "application/octet-stream", http.StatusConflict}, // second upload, should fail
-		{"POST", "/a2", []byte("test2"), "application/octet-stream", http.StatusCreated}, // Uploading to different key should always work
-		{"HEAD", "/a1", []byte(nil), "", http.StatusOK},
-		{"GET", "/a1", []byte("test"), "application/octet-stream", http.StatusOK},
-		{"PUT", "/a1", []byte("edited test"), "application/octet-stream", http.StatusOK}, // second upload, overwriting first upload
-		{"GET", "/a1", []byte("edited test"), "application/octet-stream", http.StatusOK},
-		{"DELETE", "/a1", []byte(nil), "", http.StatusOK}, // after deletion, no method should find /a1
-		{"DELETE", "/a1", []byte(nil), "", http.StatusNotFound},
-		{"HEAD", "/a1", []byte(nil), "", http.StatusNotFound},
-		{"GET", "/a1", []byte(nil), "", http.StatusNotFound},
-		{"GET", "/a2", []byte("test2"), "application/octet-stream", http.StatusOK}, // This one was never deleted, so it should still work
+		{"HEAD", "/a1", []byte(nil), "", http.StatusNotFound},                                        // the DB must be empty on first boot
+		{"HEAD", "/a2", []byte(nil), "", http.StatusNotFound},                                        // the DB must be empty on first boot
+		{"GET", "/a1", []byte(nil), "", http.StatusNotFound},                                         // the DB must be empty on first boot
+		{"POST", "/a1", []byte("test"), "application/octet-stream", http.StatusCreated},              // first upload
+		{"POST", "/a1", []byte("test"), "application/octet-stream", http.StatusConflict},             // second upload, should fail because POST doesn't overwrite
+		{"POST", "/a2", []byte("test2"), "application/octet-stream", http.StatusCreated},             // Uploading to different key should always work
+		{"HEAD", "/a1", []byte(nil), "", http.StatusOK},                                              // after upload, all methods should find /a1
+		{"GET", "/a1", []byte("test"), "application/octet-stream", http.StatusOK},                    // after upload, all methods should find /a1
+		{"PUT", "/a1", []byte("edited test"), "application/octet-stream", http.StatusOK},             // second upload, overwriting first upload
+		{"GET", "/a1", []byte("edited test"), "application/octet-stream", http.StatusOK},             // after upload, all methods should find /a1
+		{"DELETE", "/a1", []byte(nil), "", http.StatusOK},                                            // after deletion, no method should find /a1
+		{"DELETE", "/a1", []byte(nil), "", http.StatusNotFound},                                      // after deletion, deleting again should fail
+		{"HEAD", "/a1", []byte(nil), "", http.StatusNotFound},                                        // after deletion, no method should find /a1
+		{"GET", "/a1", []byte(nil), "", http.StatusNotFound},                                         // after deletion, no method should find /a1
+		{"GET", "/a2", []byte("test2"), "application/octet-stream", http.StatusOK},                   // This one was never deleted, so it should still work
+		{"POST", "/NoContentType", []byte("random text"), "", http.StatusBadRequest},                 // This should fail because of missing Content-Type
+		{"PUT", "/NoContentType", []byte("random text"), "", http.StatusBadRequest},                  // This should fail because of missing Content-Type
+		{"POST", "/BadContentType", []byte("data data data"), " fakeCT abcd", http.StatusBadRequest}, // This should fail because of bad Content-Type
+		{"POST", "/NoSlash", []byte("data data data"), "fakeCTabcd", http.StatusBadRequest},          // This should fail because of bad Content-Type
+		{"PUT", "/BadContentType", []byte("data data data"), " fakeCT abcd", http.StatusBadRequest},  // This should fail because of bad Content-Type
+		{"POST", "/NoData", []byte(""), "application/octet-stream", http.StatusBadRequest},           // This should fail because of empty data
+		{"PUT", "/NoData", []byte(""), "application/octet-stream", http.StatusBadRequest},            // This should fail because of empty data
 	}
 
 	for _, row := range table {
