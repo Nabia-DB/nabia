@@ -39,11 +39,11 @@ func TestFundamentals(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create NabiaServerRecord: %q", err)
 	}
-	if !bytes.Equal(nsr.GetRawData(), []byte("test")) {
-		t.Fatalf("Unexpected data: %q", nsr.GetRawData())
+	if !bytes.Equal(nsr.getRawData(), []byte("test")) {
+		t.Fatalf("Unexpected data: %q", nsr.getRawData())
 	}
-	if nsr.GetContentType() != "application/octet-stream" {
-		t.Fatalf("Unexpected content type: %q", nsr.GetContentType())
+	if nsr.getContentType() != "application/octet-stream" {
+		t.Fatalf("Unexpected content type: %q", nsr.getContentType())
 	}
 }
 
@@ -77,11 +77,11 @@ func TestDeserialization(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to deserialize: %q", err)
 	}
-	if !bytes.Equal(nsr.GetRawData(), []byte("test")) {
-		t.Fatalf("Unexpected data: %q", nsr.GetRawData())
+	if !bytes.Equal(nsr.getRawData(), []byte("test")) {
+		t.Fatalf("Unexpected data: %q", nsr.getRawData())
 	}
-	if nsr.GetContentType() != "application/octet-stream" {
-		t.Fatalf("Unexpected content type: %q", nsr.GetContentType())
+	if nsr.getContentType() != "application/octet-stream" {
+		t.Fatalf("Unexpected content type: %q", nsr.getContentType())
 	}
 }
 

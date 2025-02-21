@@ -18,27 +18,27 @@ import (
 	"github.com/spf13/viper"
 )
 
-type NabiaHTTP struct {
+type byteSlice []byte
+
+type nabiaHTTP struct {
 	db *engine.NabiaDB
 }
-
-type byteSlice []byte
 
 type nabiaServerRecord struct {
 	data        byteSlice
 	contentType string
 }
 
-func (nsr nabiaServerRecord) GetRawData() byteSlice {
+func (nsr nabiaServerRecord) getRawData() byteSlice {
 	return nsr.data
 }
 
-func (nsr nabiaServerRecord) GetContentType() string {
+func (nsr nabiaServerRecord) getContentType() string {
 	return nsr.contentType
 }
 
-func extractDataAndContentType(record *nabiaServerRecord) (byteSlice, string, error) {
-	return record.GetRawData(), record.GetContentType(), nil
+func (nsr nabiaServerRecord) extractDataAndContentType() (byteSlice, string, error) {
+	return nsr.getRawData(), nsr.getContentType(), nil
 }
 
 func newNabiaServerRecord(data byteSlice, ct string) (*nabiaServerRecord, error) {
@@ -120,8 +120,8 @@ func (nsr nabiaServerRecord) serialize() (byteSlice, error) {
 	return buf.Bytes(), nil
 }
 
-// Write is a wrapper for database write. It will always overwrite the data
-func (h *NabiaHTTP) Write(key string, nsr nabiaServerRecord) {
+// write is a wrapper for database write. It will always overwrite the data
+func (h *nabiaHTTP) write(key string, nsr nabiaServerRecord) {
 	if record, err := nsr.serialize(); err != nil {
 		log.Println("Error: " + err.Error())
 	} else {
@@ -129,8 +129,8 @@ func (h *NabiaHTTP) Write(key string, nsr nabiaServerRecord) {
 	}
 }
 
-// Read is a wrapper for database Read
-func (h *NabiaHTTP) Read(key string) (nabiaServerRecord, error) {
+// read is a wrapper for database Read
+func (h *nabiaHTTP) read(key string) (nabiaServerRecord, error) {
 	if record, err := h.db.Read(key); err != nil {
 		return nabiaServerRecord{}, err
 	} else {
@@ -142,18 +142,23 @@ func (h *NabiaHTTP) Read(key string) (nabiaServerRecord, error) {
 	}
 }
 
-// Wrapper for engine Delete
-func (h *NabiaHTTP) Delete(key string) {
+// delete wraps around DB Delete
+func (h *nabiaHTTP) delete(key string) {
 	h.db.Delete(key)
 }
 
-func NewNabiaHttp(ns *engine.NabiaDB) *NabiaHTTP {
-	return &NabiaHTTP{db: ns}
+// exists wraps around DB Exists
+func (h *nabiaHTTP) exists(key string) bool {
+	return h.db.Exists(key)
+}
+
+func NewNabiaHttp(ns *engine.NabiaDB) *nabiaHTTP {
+	return &nabiaHTTP{db: ns}
 }
 
 // These are the higher-level HTTP API calls exposed via the desired port, which
 // in turn call the CRUD primitives from engine.
-func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *nabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var response []byte
 	key := r.URL.Path
 	clientIP, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -168,13 +173,13 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET": // TODO tests
 		// Only Read
-		nsr, error := h.Read(key)
+		nsr, error := h.read(key)
 		if error != nil {
 			log.Default().Println("Error: " + error.Error())
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		data, contentType, error := extractDataAndContentType(&nsr)
+		data, contentType, error := nsr.extractDataAndContentType()
 		response = data
 		w.Header().Set("Content-Type", contentType)
 		if error != nil {
@@ -185,7 +190,7 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "HEAD": // TODO tests
 		w.Header().Del("Content-Type")
 		// Only check if exists
-		if h.db.Exists(key) {
+		if h.exists(key) {
 			w.WriteHeader(http.StatusOK)
 		} else {
 			w.WriteHeader(http.StatusNotFound)
@@ -199,7 +204,7 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
 			break
 		}
-		if h.db.Exists(key) {
+		if h.exists(key) {
 			w.WriteHeader(http.StatusConflict)
 			break
 		}
@@ -217,7 +222,7 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
 			break
 		}
-		h.Write(key, *nsr)
+		h.write(key, *nsr)
 		w.WriteHeader(http.StatusCreated)
 	case "PUT":
 		// Overwrites if exists, otherwise creates
@@ -241,19 +246,19 @@ func (h *NabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
 			break
 		}
-		h.Write(key, *nsr)
+		h.write(key, *nsr)
 		w.WriteHeader(http.StatusOK)
 	case "DELETE": // TODO tests
 		// Only Delete
-		if h.db.Exists(key) {
-			h.db.Delete(key)
+		if h.exists(key) {
+			h.delete(key)
 			w.WriteHeader(http.StatusOK)
 		} else {
 			w.WriteHeader(http.StatusNotFound)
 		}
 	case "OPTIONS":
 		// TODO tests
-		if h.db.Exists(key) {
+		if h.exists(key) {
 			w.Header().Set("Allow", "GET, PUT, DELETE, HEAD")
 		} else {
 			w.Header().Set("Allow", "PUT, POST, HEAD")
@@ -314,7 +319,7 @@ func main() {
 		log.Fatalf("Failed to start NabiaDB: %s", err)
 	}
 	ready := make(chan struct{})
-	startServer(db, ready)
+	db.startServer(ready)
 	<-ready
 	select {}
 }

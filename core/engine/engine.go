@@ -43,10 +43,6 @@ func NewNabiaRecord(data []byte) (*NabiaRecord, error) { // TODO this function c
 	return &NabiaRecord{RawData: data}, nil
 }
 
-func (nr *NabiaRecord) GetRawData() interface{} {
-	return nr.RawData
-}
-
 // checkOrCreateDB checks if the file exists, and if it doesn't, it creates it.
 // The first boolean indicates whether the file already existed, and the second
 // boolean indicates whether an error occurred.
@@ -99,22 +95,12 @@ func newEmptyDB() *NabiaDB {
 func NewNabiaDB(location string) (*NabiaDB, error) {
 	ndb := newEmptyDB()
 	ndb.internals.location = location
-	if err := ndb.saveToFile(location); err != nil {
+	if err := ndb.SaveToFile(location); err != nil {
 		return nil, err
 	}
 	return ndb, nil
 }
 
-// TODO NabiaDBFromFile must be reimplemented
-//func NabiaDBFromFile(location string) (*NabiaDB, error) {
-//	return loadFromFile(location)
-//}
-
-// Below are the DB primitives.
-
-// Exists checks if the key name provided exists in the Nabia map. It locks
-// to read and unlocks immediately after.
-// +1 read
 func (ns *NabiaDB) Exists(key string) bool {
 	if key == "" { // key cannot be empty
 		return false
@@ -184,12 +170,10 @@ func (ns *NabiaDB) Delete(key string) {
 }
 
 func (ns *NabiaDB) Stop() {
-	ns.saveToFile(ns.internals.location)
-	// TODO emit a shutdown signal
+	ns.SaveToFile(ns.internals.location)
 }
 
-// TODO: Saving and loading must be reimplemented
-func (ns *NabiaDB) saveToFile(filename string) error {
+func (ns *NabiaDB) SaveToFile(filename string) error {
 	// Open or create the file for writing. os.Create truncates the file if it already exists.
 	file, err := os.Create(filename)
 	if err != nil {
@@ -209,12 +193,16 @@ func (ns *NabiaDB) saveToFile(filename string) error {
 	data := make(map[string]NabiaRecord) // The string is always the key regardless of data type
 
 	// Copy data from sync.Map to the regular map
-	ns.records.Range(func(key, value interface{}) bool {
-		if k, ok := key.(string); ok {
-			if v, ok := value.([]byte); ok {
-				data[k] = NabiaRecord{RawData: v}
-			}
+	ns.records.Range(func(key, value any) bool {
+		k, ok := key.(string)
+		if !ok {
+			return false
 		}
+		v, ok := value.([]byte)
+		if !ok {
+			return false
+		}
+		data[k] = NabiaRecord{RawData: v}
 		return true
 	})
 
@@ -228,7 +216,7 @@ func (ns *NabiaDB) saveToFile(filename string) error {
 	return nil // Return nil if the function completes successfully
 }
 
-func loadFromFile(filename string) (*NabiaDB, error) {
+func LoadFromFile(filename string) (*NabiaDB, error) {
 	file, err := os.Open(filename)
 	if err != nil {
 		return nil, err
@@ -249,7 +237,7 @@ func loadFromFile(filename string) (*NabiaDB, error) {
 	ndb := newEmptyDB()
 	ndb.internals.location = filename
 	for key, value := range data {
-		ndb.Write(fmt.Sprintf("%v", key), value.GetRawData().([]byte))
+		ndb.Write(fmt.Sprintf("%v", key), value.RawData)
 		ndb.internals.metrics.dataActivity.size++
 	}
 
