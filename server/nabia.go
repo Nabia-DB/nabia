@@ -261,7 +261,6 @@ func (h *nabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNotFound)
 		}
 	case "OPTIONS":
-		// TODO tests
 		if h.exists(key) {
 			w.Header().Set("Allow", "GET, PUT, DELETE, HEAD")
 		} else {
