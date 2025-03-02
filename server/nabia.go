@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -11,7 +12,10 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	engine "github.com/Nabia-DB/nabia/core/engine"
@@ -171,7 +175,7 @@ func (h *nabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		log.Printf("%s %s from %s", r.Method, key, clientIP)
 	}
 	switch r.Method {
-	case "GET": // TODO tests
+	case "GET":
 		// Only Read
 		nsr, error := h.read(key)
 		if error != nil {
@@ -187,7 +191,7 @@ func (h *nabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-	case "HEAD": // TODO tests
+	case "HEAD":
 		w.Header().Del("Content-Type")
 		// Only check if exists
 		if h.exists(key) {
@@ -248,7 +252,7 @@ func (h *nabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		h.write(key, *nsr)
 		w.WriteHeader(http.StatusOK)
-	case "DELETE": // TODO tests
+	case "DELETE":
 		// Only Delete
 		if h.exists(key) {
 			h.delete(key)
@@ -272,18 +276,21 @@ func (h *nabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // startServer forks into a goroutine to make a server, then, making use of the
 // ready channel, informs the caller when the server is ready to receive requests
-func startServer(db *engine.NabiaDB, ready chan struct{}) {
+func startServer(db *engine.NabiaDB, ready chan struct{}, stopSignal <-chan struct{}) {
 	http_handler := NewNabiaHttp(db)
 	viper.SetDefault("port", 5380)
 	port := viper.GetString("port")
 	log.Println("Listening on port " + port)
 	server := &http.Server{Addr: ":" + port, Handler: http_handler}
+
+	serverErr := make(chan error, 1)
 	go func() {
-		// Start the server
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Failed to start server: %v", err)
+			serverErr <- err
 		}
+		close(serverErr)
 	}()
+
 	// Check if the server is ready by trying to connect to it
 	for {
 		conn, err := net.Dial("tcp", ":"+port)
@@ -296,6 +303,32 @@ func startServer(db *engine.NabiaDB, ready chan struct{}) {
 	}
 	// Signal that the server is ready
 	close(ready)
+
+	go func() {
+		<-stopSignal // Wait for shutdown signal
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := server.Shutdown(ctx); err != nil {
+			select {
+			case err := <-serverErr:
+				log.Printf("Server shutdown error: %v", err)
+			default:
+				log.Printf("Server forced to shutdown: %v", err)
+			}
+		}
+		stopServer(db)
+	}()
+
+}
+
+func stopServer(db *engine.NabiaDB) {
+	log.Println()
+	log.Println("Shutdown requested. Saving data...")
+	db.Stop()
+	log.Printf("Data saved to %q. Quitting...", viper.GetString("db_location"))
+	os.Exit(0)
 }
 
 func main() {
@@ -319,7 +352,14 @@ func main() {
 		log.Fatalf("Failed to start NabiaDB: %s", err)
 	}
 	ready := make(chan struct{})
-	db.startServer(ready)
+	stopSignal := make(chan struct{})
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		close(stopSignal)
+	}()
+	startServer(db, ready, stopSignal)
 	<-ready
 	select {}
 }
