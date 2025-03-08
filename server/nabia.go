@@ -58,6 +58,9 @@ func validateContentType(ct string) error {
 	if len(ct) == 0 {
 		return errors.New("Content-Type cannot be empty")
 	}
+	if len(ct) > 255 {
+		return errors.New("Content-Type is too large; its length must be less than 256")
+	}
 	if !strings.Contains(ct, "/") {
 		return errors.New("Content-Type must contain a '/'")
 	}
