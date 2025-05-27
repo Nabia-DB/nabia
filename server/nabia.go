@@ -28,19 +28,24 @@ type nabiaHTTP struct {
 	db *engine.NabiaDB
 }
 
+// nabiaServerRecord enhances the core library NabiaRecord, which is a byte slice
+// with a content type. This is the data structure that is stored in the database.
 type nabiaServerRecord struct {
 	data        byteSlice
 	contentType string
 }
 
+// getRawData returns the raw data of the record
 func (nsr nabiaServerRecord) getRawData() byteSlice {
 	return nsr.data
 }
 
+// getContentType returns the content type of the record
 func (nsr nabiaServerRecord) getContentType() string {
 	return nsr.contentType
 }
 
+// extractDataAndContentType returns the data and content type of the record
 func (nsr nabiaServerRecord) extractDataAndContentType() (byteSlice, string, error) {
 	return nsr.getRawData(), nsr.getContentType(), nil
 }
@@ -54,6 +59,7 @@ func newNabiaServerRecord(data byteSlice, ct string) (*nabiaServerRecord, error)
 	return &nsr, nil
 }
 
+// validateContentType checks if the content type is valid
 func validateContentType(ct string) error {
 	if len(ct) == 0 {
 		return errors.New("Content-Type cannot be empty")
@@ -114,7 +120,6 @@ func (bs byteSlice) deserialize() (*nabiaServerRecord, error) {
 func (nsr nabiaServerRecord) serialize() (byteSlice, error) {
 	currentVersion := uint8(0)
 	if len(nsr.contentType) > int(math.MaxUint8) {
-		// TODO test opportunity
 		return nil, fmt.Errorf("Content-Type is too large; its length must be less than %d", math.MaxUint8)
 	}
 
@@ -127,7 +132,7 @@ func (nsr nabiaServerRecord) serialize() (byteSlice, error) {
 	return buf.Bytes(), nil
 }
 
-// write is a wrapper for database write. It will always overwrite the data
+// write is a wrapper for engine write. It will always overwrite the data
 func (h *nabiaHTTP) write(key string, nsr nabiaServerRecord) {
 	if record, err := nsr.serialize(); err != nil {
 		log.Println("Error: " + err.Error())
@@ -136,7 +141,7 @@ func (h *nabiaHTTP) write(key string, nsr nabiaServerRecord) {
 	}
 }
 
-// read is a wrapper for database Read
+// read is a wrapper for engine read
 func (h *nabiaHTTP) read(key string) (nabiaServerRecord, error) {
 	if record, err := h.db.Read(key); err != nil {
 		return nabiaServerRecord{}, err
@@ -149,12 +154,12 @@ func (h *nabiaHTTP) read(key string) (nabiaServerRecord, error) {
 	}
 }
 
-// delete wraps around DB Delete
+// delete is a wrapper for engine Delete
 func (h *nabiaHTTP) delete(key string) {
 	h.db.Delete(key)
 }
 
-// exists wraps around DB Exists
+// exists wraps around engine exists
 func (h *nabiaHTTP) exists(key string) bool {
 	return h.db.Exists(key)
 }
@@ -163,8 +168,8 @@ func NewNabiaHttp(ns *engine.NabiaDB) *nabiaHTTP {
 	return &nabiaHTTP{db: ns}
 }
 
-// These are the higher-level HTTP API calls exposed via the desired port, which
-// in turn call the CRUD primitives from engine.
+// ServeHTTP  are the higher-level HTTP API calls exposed via the desired port,
+// which in turn call the CRUD primitives from engine.
 func (h *nabiaHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var response []byte
 	key := r.URL.Path
@@ -284,7 +289,7 @@ func startServer(db *engine.NabiaDB, ready chan struct{}, stopSignal <-chan stru
 	port := viper.GetString("port")
 	log.Println("Listening on port " + port)
 	server := &http.Server{Addr: ":" + port, Handler: http_handler}
-
+	metricsServer := &http.Server{Addr: ":8080", Handler: http.DefaultServeMux}
 	serverErr := make(chan error, 1)
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -330,7 +335,6 @@ func stopServer(db *engine.NabiaDB) {
 	log.Println("Shutdown requested. Saving data...")
 	db.Stop()
 	log.Printf("Data saved to %q. Quitting...", viper.GetString("db_location"))
-	os.Exit(0)
 }
 
 func main() {
@@ -360,6 +364,7 @@ func main() {
 	go func() {
 		<-sigCh
 		close(stopSignal)
+		defer os.Exit(0)
 	}()
 	startServer(db, ready, stopSignal)
 	<-ready

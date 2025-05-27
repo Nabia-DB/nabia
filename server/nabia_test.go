@@ -120,7 +120,9 @@ func TestHTTP(t *testing.T) { // Tests the implementation of the HTTP API
 		t.Errorf("Failed to create Nabia DB: %q", err)
 	}
 	serverReady := make(chan struct{})
-	go startServer(db, serverReady)
+	stopServer := make(chan struct{})
+	defer close(stopServer) // Ensure server is stopped
+	go startServer(db, serverReady, stopServer)
 	<-serverReady // blocks until ready
 
 	var response *http.Response
@@ -230,32 +232,4 @@ func TestHTTP(t *testing.T) { // Tests the implementation of the HTTP API
 				row.verb, row.key, err.Error())
 		}
 	}
-
-	// first HEAD should not return results (404)
-
-	// first POST
-
-	// TODO compare body
-	// TODO compare content_type
-
-	// TODO GET
-
-	// TODO POST (update)
-
-	// TODO HEAD
-
-	// TODO DELETE
-
-	// TODO HEAD
-
-	// TODO POST to bad key
-
-	// key = "/a/"
-
-	// TODO GET from bad key
-
-	// TODO POST bad content-type https://stackoverflow.com/questions/7924474/regex-to-extract-content-type
-
-	// TODO GET bad content type https://stackoverflow.com/questions/7924474/regex-to-extract-content-type
-
 }

@@ -18,14 +18,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-func detectFileMimetype(filename string) string {
-	mtype, err := mimetype.DetectFile(filename)
-	if err != nil {
-		log.Fatalf("ERROR detecting filetype: %q", err)
-	}
-	return mtype.String()
-}
-
 func detectBytesliceMimetype(byteSlice []byte) string {
 	mtype := mimetype.Detect(byteSlice)
 	return mtype.String()

@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+// NabiaRecord represents the value in the key-value pair in the Nabia database.
+// The value is a byte slice, which can be any data type, using serialization.
 type NabiaRecord struct {
 	RawData []byte
 }
@@ -20,26 +22,32 @@ type dataActivity struct {
 	writes int64
 	size   int64
 }
+
 type timestamps struct {
 	lastSave  time.Time
 	lastLoad  time.Time
 	lastRead  time.Time
 	lastWrite time.Time
 }
+
 type metrics struct {
 	dataActivity dataActivity
 	timestamps   timestamps
 }
+
 type internals struct {
 	location string
 	metrics  metrics
 }
+
 type NabiaDB struct {
 	records   sync.Map
 	internals internals
 }
 
-func NewNabiaRecord(data []byte) (*NabiaRecord, error) { // TODO this function can be expanded later
+// NewNabiaRecord is the constructor for NabiaRecord. It takes a byte slice and
+// returns a pointer to a NabiaRecord and an error.
+func NewNabiaRecord(data []byte) (*NabiaRecord, error) {
 	return &NabiaRecord{RawData: data}, nil
 }
 
@@ -70,6 +78,7 @@ func checkOrCreateFile(location string) (bool, error) {
 	}
 }
 
+// newEmptyDB is a helper function that creates a new NabiaDB with empty data.
 func newEmptyDB() *NabiaDB {
 	return &NabiaDB{
 		records: sync.Map{},
@@ -92,6 +101,8 @@ func newEmptyDB() *NabiaDB {
 	}
 }
 
+// NewNabiaDB is the constructor for NabiaDB. It takes a location string and
+// returns a pointer to a NabiaDB and a (nullable) error.
 func NewNabiaDB(location string) (*NabiaDB, error) {
 	ndb := newEmptyDB()
 	ndb.internals.location = location
@@ -116,7 +127,7 @@ func (ns *NabiaDB) Exists(key string) bool {
 // always check the error returned in the second parameter, as the result cannot
 // be used if the "error" field is not nil. This function is safe to call even
 // with empty data, because the method applies a mutex.
-// +1 read
+// +1 read.
 func (ns *NabiaDB) Read(key string) ([]byte, error) {
 	if key == "" {
 		return nil, fmt.Errorf("key cannot be empty")
@@ -135,8 +146,8 @@ func (ns *NabiaDB) Read(key string) ([]byte, error) {
 // Write takes the key and a value of NabiaRecord datatype and places it on the
 // database, potentially overwriting whatever was there before, because Write
 // has no data safety features preventing the overwriting of data.
-// +1 write when validation passes
-// +1 size if the key is new
+// +1 write when validation passes.
+// +1 size if the key is new.
 func (ns *NabiaDB) Write(key string, value []byte) error {
 	// validation
 	if key == "" {
@@ -158,8 +169,8 @@ func (ns *NabiaDB) Write(key string, value []byte) error {
 // Delete takes a key and removes it from the map. This method doesn't have
 // existence-checking logic. It is safe to use on empty data, it simply doesn't
 // do anything if the record doesn't exist.
-// -1 size if the key exists
-// +1 write
+// -1 size if the key exists.
+// +1 write.
 func (ns *NabiaDB) Delete(key string) {
 	if ns.Exists(key) {
 		atomic.AddInt64(&ns.internals.metrics.dataActivity.size, -1)
@@ -173,6 +184,9 @@ func (ns *NabiaDB) Stop() {
 	ns.SaveToFile(ns.internals.location)
 }
 
+// SaveToFile saves the NabiaDB to a file. It uses the gob package for
+// serialization. The file is truncated if it already exists. The function
+// returns an error if the file creation or encoding fails.
 func (ns *NabiaDB) SaveToFile(filename string) error {
 	// Open or create the file for writing. os.Create truncates the file if it already exists.
 	file, err := os.Create(filename)
@@ -216,6 +230,9 @@ func (ns *NabiaDB) SaveToFile(filename string) error {
 	return nil // Return nil if the function completes successfully
 }
 
+// LoadFromFile loads a NabiaDB from a file. It uses the gob package for
+// deserialization. The function returns a pointer to the NabiaDB and an error
+// if the file reading or decoding fails.
 func LoadFromFile(filename string) (*NabiaDB, error) {
 	file, err := os.Open(filename)
 	if err != nil {
