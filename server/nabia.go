@@ -289,7 +289,7 @@ func startServer(db *engine.NabiaDB, ready chan struct{}, stopSignal <-chan stru
 	port := viper.GetString("port")
 	log.Println("Listening on port " + port)
 	server := &http.Server{Addr: ":" + port, Handler: http_handler}
-	metricsServer := &http.Server{Addr: ":8080", Handler: http.DefaultServeMux}
+	// metricsServer := &http.Server{Addr: ":8080", Handler: http.DefaultServeMux}
 	serverErr := make(chan error, 1)
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
