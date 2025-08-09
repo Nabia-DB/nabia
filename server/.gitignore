@@ -16,3 +16,6 @@
 
 # Nabia server
 nabia
+
+# Database files
+*.db
