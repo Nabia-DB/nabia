@@ -68,7 +68,7 @@ func optionsData(key string, host string, port uint16) (string, error) {
 
 	optionsString := response.Header.Get("Allow")
 	if len(optionsString) == 0 {
-		log.Fatalf("Unknown error while trying to \"OPTIONS\" %s at %s:%d: Empty Allow header", key, host, port)
+		return "", fmt.Errorf("Unknown error while trying to \"OPTIONS\" %s at %s:%d: Empty Allow header", key, host, port)
 	}
 	return optionsString, nil
 }

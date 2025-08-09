@@ -1,5 +1,34 @@
-core/engine/nabia.db
-core/engine/test.db
-.idea/*
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Build artifacts
+nabia-client
+server/nabia
 client/nabia-client
-server/test.db
+dist/
+build/
+
+# Test artifacts
+*.test
+coverage.out
+coverage.html
+*.db
+test*.db
+
+# Go specific
+vendor/
+go.work
+go.work.sum
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+testing/testdata/

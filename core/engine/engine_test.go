@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestFileSavingAndLoading(t *testing.T) {
@@ -174,6 +175,496 @@ func TestCRUD(t *testing.T) { // Create, Read, Update, Destroy
 		t.Errorf("Stats are not as expected.\nExpected: %+v\nGot: %+v", expected_stats, nabiaDB.internals.metrics.dataActivity)
 	}
 
+}
+
+func TestNewNabiaRecord(t *testing.T) {
+	tests := []struct {
+		name        string
+		data        []byte
+		expectError bool
+	}{
+		{
+			name:        "Valid data",
+			data:        []byte("Hello, World!"),
+			expectError: false,
+		},
+		{
+			name:        "Empty data",
+			data:        []byte{},
+			expectError: false,
+		},
+		{
+			name:        "Binary data",
+			data:        []byte{0x00, 0x01, 0x02, 0xff},
+			expectError: false,
+		},
+		{
+			name:        "Nil data",
+			data:        nil,
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			record, err := NewNabiaRecord(tt.data)
+			if tt.expectError && err == nil {
+				t.Error("Expected error but got none")
+			}
+			if !tt.expectError && err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			}
+			if !tt.expectError {
+				if !bytes.Equal(record.RawData, tt.data) {
+					t.Errorf("Expected data %v, got %v", tt.data, record.RawData)
+				}
+			}
+		})
+	}
+}
+
+func TestCheckOrCreateFile(t *testing.T) {
+	t.Run("Create new file", func(t *testing.T) {
+		testFile := "test_create.db"
+		defer os.Remove(testFile)
+		
+		exists, err := checkOrCreateFile(testFile)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		if exists {
+			t.Error("File should not exist initially")
+		}
+		
+		// Verify file was created
+		if _, err := os.Stat(testFile); os.IsNotExist(err) {
+			t.Error("File should have been created")
+		}
+	})
+
+	t.Run("File already exists", func(t *testing.T) {
+		testFile := "test_exists.db"
+		
+		// Create the file first
+		file, err := os.Create(testFile)
+		if err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+		file.Close()
+		defer os.Remove(testFile)
+		
+		exists, err := checkOrCreateFile(testFile)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		if !exists {
+			t.Error("File should exist")
+		}
+	})
+
+	t.Run("Empty location", func(t *testing.T) {
+		_, err := checkOrCreateFile("")
+		if err == nil {
+			t.Error("Expected error for empty location")
+		}
+		if !strings.Contains(err.Error(), "location cannot be empty") {
+			t.Errorf("Expected 'location cannot be empty' error, got: %v", err)
+		}
+	})
+
+	t.Run("Invalid path", func(t *testing.T) {
+		// Try to create a file in a directory that doesn't exist
+		invalidPath := "/nonexistent/directory/file.db"
+		_, err := checkOrCreateFile(invalidPath)
+		if err == nil {
+			t.Error("Expected error for invalid path")
+		}
+	})
+}
+
+func TestNewEmptyDB(t *testing.T) {
+	db := newEmptyDB()
+	
+	if db == nil {
+		t.Fatal("newEmptyDB() returned nil")
+	}
+	
+	if db.internals.location != "" {
+		t.Errorf("Expected empty location, got: %s", db.internals.location)
+	}
+	
+	if db.internals.metrics.dataActivity.reads != 0 ||
+		db.internals.metrics.dataActivity.writes != 0 ||
+		db.internals.metrics.dataActivity.size != 0 {
+		t.Error("Expected zero metrics for new empty DB")
+	}
+}
+
+func TestNewNabiaDB(t *testing.T) {
+	t.Run("Valid location", func(t *testing.T) {
+		testFile := "test_new.db"
+		defer os.Remove(testFile)
+		
+		db, err := NewNabiaDB(testFile)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		
+		if db.internals.location != testFile {
+			t.Errorf("Expected location %s, got %s", testFile, db.internals.location)
+		}
+		
+		// Verify file was created
+		if _, err := os.Stat(testFile); os.IsNotExist(err) {
+			t.Error("Database file should have been created")
+		}
+	})
+
+	t.Run("Invalid location", func(t *testing.T) {
+		_, err := NewNabiaDB("/nonexistent/directory/test.db")
+		if err == nil {
+			t.Error("Expected error for invalid location")
+		}
+	})
+}
+
+func TestReadEmptyKey(t *testing.T) {
+	db := newEmptyDB()
+	
+	_, err := db.Read("")
+	if err == nil {
+		t.Error("Expected error for empty key")
+	}
+	if !strings.Contains(err.Error(), "key cannot be empty") {
+		t.Errorf("Expected 'key cannot be empty' error, got: %v", err)
+	}
+}
+
+func TestReadNonExistentKey(t *testing.T) {
+	db := newEmptyDB()
+	
+	_, err := db.Read("nonexistent")
+	if err == nil {
+		t.Error("Expected error for nonexistent key")
+	}
+	if !strings.Contains(err.Error(), "doesn't exist") {
+		t.Errorf("Expected 'doesn't exist' error, got: %v", err)
+	}
+}
+
+func TestWriteValidation(t *testing.T) {
+	db := newEmptyDB()
+	
+	tests := []struct {
+		name        string
+		key         string
+		value       []byte
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name:        "Empty key",
+			key:         "",
+			value:       []byte("value"),
+			expectError: true,
+			errorMsg:    "key cannot be empty",
+		},
+		{
+			name:        "Empty value",
+			key:         "key",
+			value:       []byte{},
+			expectError: true,
+			errorMsg:    "value cannot be nil",
+		},
+		{
+			name:        "Valid key and value",
+			key:         "valid-key",
+			value:       []byte("valid-value"),
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := db.Write(tt.key, tt.value)
+			if tt.expectError && err == nil {
+				t.Error("Expected error but got none")
+			}
+			if !tt.expectError && err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			}
+			if tt.expectError && err != nil && !strings.Contains(err.Error(), tt.errorMsg) {
+				t.Errorf("Expected error message containing '%s', got: %v", tt.errorMsg, err)
+			}
+		})
+	}
+}
+
+func TestExistsEmptyKey(t *testing.T) {
+	db := newEmptyDB()
+	
+	exists := db.Exists("")
+	if exists {
+		t.Error("Empty key should not exist")
+	}
+}
+
+func TestMetricsTracking(t *testing.T) {
+	db := newEmptyDB()
+	
+	// Initial metrics should be zero
+	if db.internals.metrics.dataActivity.reads != 0 {
+		t.Error("Initial read count should be zero")
+	}
+	if db.internals.metrics.dataActivity.writes != 0 {
+		t.Error("Initial write count should be zero")
+	}
+	if db.internals.metrics.dataActivity.size != 0 {
+		t.Error("Initial size should be zero")
+	}
+	
+	// Test read metrics
+	db.Exists("test-key") // Should increment reads
+	if db.internals.metrics.dataActivity.reads != 1 {
+		t.Errorf("Expected 1 read, got %d", db.internals.metrics.dataActivity.reads)
+	}
+	
+	// Test write metrics
+	db.Write("test-key", []byte("test-value"))
+	if db.internals.metrics.dataActivity.writes != 1 {
+		t.Errorf("Expected 1 write, got %d", db.internals.metrics.dataActivity.writes)
+	}
+	if db.internals.metrics.dataActivity.size != 1 {
+		t.Errorf("Expected size 1, got %d", db.internals.metrics.dataActivity.size)
+	}
+	
+	// Test overwrite (should increment writes but not size)
+	db.Write("test-key", []byte("new-value"))
+	if db.internals.metrics.dataActivity.writes != 2 {
+		t.Errorf("Expected 2 writes, got %d", db.internals.metrics.dataActivity.writes)
+	}
+	if db.internals.metrics.dataActivity.size != 1 {
+		t.Errorf("Expected size still 1, got %d", db.internals.metrics.dataActivity.size)
+	}
+	
+	// Test delete
+	db.Delete("test-key")
+	if db.internals.metrics.dataActivity.writes != 3 {
+		t.Errorf("Expected 3 writes, got %d", db.internals.metrics.dataActivity.writes)
+	}
+	if db.internals.metrics.dataActivity.size != 0 {
+		t.Errorf("Expected size 0, got %d", db.internals.metrics.dataActivity.size)
+	}
+}
+
+func TestDeleteNonExistentKey(t *testing.T) {
+	db := newEmptyDB()
+	
+	initialWrites := db.internals.metrics.dataActivity.writes
+	initialSize := db.internals.metrics.dataActivity.size
+	
+	db.Delete("nonexistent-key")
+	
+	// Should still increment writes but not change size
+	if db.internals.metrics.dataActivity.writes != initialWrites+1 {
+		t.Errorf("Expected writes to increment, got %d", db.internals.metrics.dataActivity.writes)
+	}
+	if db.internals.metrics.dataActivity.size != initialSize {
+		t.Errorf("Expected size to remain same, got %d", db.internals.metrics.dataActivity.size)
+	}
+}
+
+func TestLargeKeys(t *testing.T) {
+	db := newEmptyDB()
+	
+	// Test with very long key
+	longKey := strings.Repeat("a", 10000)
+	err := db.Write(longKey, []byte("value"))
+	if err != nil {
+		t.Errorf("Unexpected error with long key: %v", err)
+	}
+	
+	// Verify we can read it back
+	value, err := db.Read(longKey)
+	if err != nil {
+		t.Errorf("Unexpected error reading long key: %v", err)
+	}
+	if string(value) != "value" {
+		t.Errorf("Expected 'value', got '%s'", string(value))
+	}
+}
+
+func TestLargeValues(t *testing.T) {
+	db := newEmptyDB()
+	
+	// Test with large value (1MB)
+	largeValue := bytes.Repeat([]byte("x"), 1024*1024)
+	err := db.Write("large-key", largeValue)
+	if err != nil {
+		t.Errorf("Unexpected error with large value: %v", err)
+	}
+	
+	// Verify we can read it back
+	value, err := db.Read("large-key")
+	if err != nil {
+		t.Errorf("Unexpected error reading large value: %v", err)
+	}
+	if !bytes.Equal(value, largeValue) {
+		t.Error("Large value not preserved correctly")
+	}
+}
+
+func TestSpecialCharactersInKeys(t *testing.T) {
+	db := newEmptyDB()
+	
+	specialKeys := []string{
+		"key with spaces",
+		"key/with/slashes",
+		"key-with-dashes",
+		"key_with_underscores",
+		"key.with.dots",
+		"key@with@symbols",
+		"キー", // Unicode key
+		"🔑",   // Emoji key
+	}
+	
+	for _, key := range specialKeys {
+		t.Run(fmt.Sprintf("Key: %s", key), func(t *testing.T) {
+			value := []byte(fmt.Sprintf("value for %s", key))
+			
+			err := db.Write(key, value)
+			if err != nil {
+				t.Errorf("Unexpected error writing key '%s': %v", key, err)
+			}
+			
+			readValue, err := db.Read(key)
+			if err != nil {
+				t.Errorf("Unexpected error reading key '%s': %v", key, err)
+			}
+			
+			if !bytes.Equal(readValue, value) {
+				t.Errorf("Value mismatch for key '%s'", key)
+			}
+		})
+	}
+}
+
+func TestTimestamps(t *testing.T) {
+	db := newEmptyDB()
+	
+	initialTime := db.internals.metrics.timestamps.lastRead
+	
+	// Wait a bit to ensure timestamp difference
+	time.Sleep(1 * time.Millisecond)
+	
+	db.Exists("test-key")
+	
+	if !db.internals.metrics.timestamps.lastRead.After(initialTime) {
+		t.Error("lastRead timestamp should have been updated")
+	}
+	
+	initialWrite := db.internals.metrics.timestamps.lastWrite
+	time.Sleep(1 * time.Millisecond)
+	
+	db.Write("test-key", []byte("value"))
+	
+	if !db.internals.metrics.timestamps.lastWrite.After(initialWrite) {
+		t.Error("lastWrite timestamp should have been updated")
+	}
+}
+
+func TestSaveToFileErrors(t *testing.T) {
+	db := newEmptyDB()
+	
+	// Try to save to an invalid path
+	err := db.SaveToFile("/nonexistent/directory/file.db")
+	if err == nil {
+		t.Error("Expected error saving to invalid path")
+	}
+}
+
+func TestLoadFromFileErrors(t *testing.T) {
+	// Try to load from non-existent file
+	_, err := LoadFromFile("nonexistent.db")
+	if err == nil {
+		t.Error("Expected error loading non-existent file")
+	}
+	
+	// Create a file with invalid gob data
+	invalidFile := "invalid.db"
+	err = os.WriteFile(invalidFile, []byte("invalid gob data"), 0644)
+	if err != nil {
+		t.Fatalf("Failed to create invalid file: %v", err)
+	}
+	defer os.Remove(invalidFile)
+	
+	_, err = LoadFromFile(invalidFile)
+	if err == nil {
+		t.Error("Expected error loading invalid gob file")
+	}
+}
+
+// Benchmark tests for performance
+func BenchmarkWrite(b *testing.B) {
+	db := newEmptyDB()
+	
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		key := fmt.Sprintf("key-%d", i)
+		value := []byte(fmt.Sprintf("value-%d", i))
+		db.Write(key, value)
+	}
+}
+
+func BenchmarkRead(b *testing.B) {
+	db := newEmptyDB()
+	
+	// Pre-populate with data
+	for i := 0; i < 1000; i++ {
+		key := fmt.Sprintf("key-%d", i)
+		value := []byte(fmt.Sprintf("value-%d", i))
+		db.Write(key, value)
+	}
+	
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		key := fmt.Sprintf("key-%d", i%1000)
+		db.Read(key)
+	}
+}
+
+func BenchmarkExists(b *testing.B) {
+	db := newEmptyDB()
+	
+	// Pre-populate with data
+	for i := 0; i < 1000; i++ {
+		key := fmt.Sprintf("key-%d", i)
+		value := []byte(fmt.Sprintf("value-%d", i))
+		db.Write(key, value)
+	}
+	
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		key := fmt.Sprintf("key-%d", i%1000)
+		db.Exists(key)
+	}
+}
+
+func BenchmarkDelete(b *testing.B) {
+	db := newEmptyDB()
+	
+	// Pre-populate with data
+	for i := 0; i < b.N; i++ {
+		key := fmt.Sprintf("key-%d", i)
+		value := []byte(fmt.Sprintf("value-%d", i))
+		db.Write(key, value)
+	}
+	
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		key := fmt.Sprintf("key-%d", i)
+		db.Delete(key)
+	}
 }
 
 func TestConcurrency(t *testing.T) {
